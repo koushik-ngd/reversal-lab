@@ -1,0 +1,21 @@
+name: 002_open_bandit_parity
+description: >
+  Position-level IPS and SNIPS on the 10,000-row Open Bandit Dataset sample,
+  compared with Open Bandit Pipeline IPW and SNIPW on the same arrays.
+  This is not a reproduction of a published full-dataset benchmark.
+obd_root: data/raw/zr-obp/obd
+obp_root: data/raw/zr-obp
+atol: 1.0e-12
+rtol: 1.0e-12
+datasets:
+  - {behavior_policy: random, campaign: all}
+  - {behavior_policy: random, campaign: men}
+  - {behavior_policy: random, campaign: women}
+  - {behavior_policy: bts, campaign: all}
+  - {behavior_policy: bts, campaign: men}
+  - {behavior_policy: bts, campaign: women}
+evaluation_policies:
+  - {kind: uniform}
+  - {kind: constant_action, action: 0}
+position_evaluation_policies:
+  - {kind: uniform}

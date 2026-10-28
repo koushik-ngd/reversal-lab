@@ -117,6 +117,50 @@ class EstimatorValidationConfig(_Strict):
         return self
 
 
+class UniformEvaluationSpec(_Strict):
+    kind: Literal["uniform"]
+
+
+class ConstantActionEvaluationSpec(_Strict):
+    kind: Literal["constant_action"]
+    action: int = Field(ge=0)
+
+
+EvaluationPolicySpec = Annotated[
+    UniformEvaluationSpec | ConstantActionEvaluationSpec, Field(discriminator="kind")
+]
+
+
+class OpenBanditDatasetSpec(_Strict):
+    behavior_policy: Literal["random", "bts"]
+    campaign: Literal["all", "men", "women"]
+
+
+class OpenBanditParityConfig(_Strict):
+    """Configuration for experiment 002: IPS/SNIPS against Open Bandit Pipeline.
+
+    This experiment compares point estimates on the small sample. It does not
+    estimate confidence-interval coverage, and it does not download the full log.
+    """
+
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_\-]+$")
+    description: str = ""
+    obd_root: str
+    obp_root: str
+    atol: float = Field(default=1e-12, ge=0.0, allow_inf_nan=False)
+    rtol: float = Field(default=1e-12, ge=0.0, allow_inf_nan=False)
+    datasets: list[OpenBanditDatasetSpec] = Field(min_length=1)
+    evaluation_policies: list[EvaluationPolicySpec] = Field(min_length=1)
+    position_evaluation_policies: list[EvaluationPolicySpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _unique_datasets(self) -> OpenBanditParityConfig:
+        keys = [(d.behavior_policy, d.campaign) for d in self.datasets]
+        if len(set(keys)) != len(keys):
+            raise ValueError("behavior_policy/campaign pairs must be unique.")
+        return self
+
+
 def load_config(path: str | Path) -> EstimatorValidationConfig:
     """Load and validate a YAML experiment config, raising :class:`ConfigurationError`."""
     p = Path(path)
@@ -130,6 +174,23 @@ def load_config(path: str | Path) -> EstimatorValidationConfig:
         raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
     try:
         return EstimatorValidationConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
+
+
+def load_parity_config(path: str | Path) -> OpenBanditParityConfig:
+    """Load experiment 002. This is a different schema from :func:`load_config`."""
+    p = Path(path)
+    if not p.is_file():
+        raise ConfigurationError(f"Config file not found: {p}")
+    try:
+        raw: Any = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(f"Could not parse YAML in {p}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
+    try:
+        return OpenBanditParityConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
 

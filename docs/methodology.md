@@ -72,14 +72,25 @@ This gives policies with known performance ordering and controllable overlap.
 The generator is not tuned towards any outcome; scenario parameters are recorded in
 the config and hashed into the run identity.
 
-## Planned methodology (M3–M4, not implemented)
+## Open Bandit sample (position-level value)
+
+The target, the logging policy, the action set, and the position slice are
+defined in `docs/open_bandit_estimand.md` before any estimate. The value is
+the expected click of one row. It is a different functional from the expected
+number of clicks on a three-item slate and from the probability of at least
+one slate click. Experiment 002 compares IPS and SNIPS with OBP's IPW and
+SNIPW on that position-level estimand.
+
+## Planned methodology (not implemented)
 
 * Direct Method and Doubly Robust estimation with cross-fitted reward models
   (out-of-fold predictions only), so that no observation's reward model was fit on it.
 * Bootstrap intervals; cluster bootstrap over `group_id` when dependence exists.
-* The decision rule for M4 is sketched in `experiment_protocol.md`. The perturbation
-  set and the fragility metric are not defined yet. They will be formalised, and
-  compared with simpler baselines, before any implementation is described as a result.
+  The current Wald interval is the one audited in `docs/standard_error_audit.md`.
+* The decision rule for a later milestone is sketched in `experiment_protocol.md`.
+  The perturbation set and the fragility metric are not defined yet. They will
+  be formalised, and compared with simpler baselines, before any implementation
+  is described as a result.
 
 ## Related work (to be expanded with verified bibliographic detail)
 

@@ -60,13 +60,39 @@ def git_revision(cwd: Path | None = None) -> dict[str, Any]:
     return {"commit": commit, "dirty": None if status is None else bool(status)}
 
 
+def sha256_file(path: Path) -> str:
+    """SHA-256 of file bytes."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def find_lockfile() -> Path | None:
+    """Find ``uv.lock`` by walking up from the working directory and this file."""
+    starts = [Path.cwd(), Path(__file__).resolve()]
+    seen: set[Path] = set()
+    for start in starts:
+        for directory in (start, *start.parents):
+            if directory in seen:
+                continue
+            seen.add(directory)
+            candidate = directory / "uv.lock"
+            if candidate.is_file():
+                return candidate
+    return None
+
+
 def collect_provenance() -> dict[str, Any]:
+    lock = find_lockfile()
     return {
         "reversallab_version": reversallab.__version__,
         "python_version": sys.version.split()[0],
         "numpy_version": np.__version__,
         "platform": platform.platform(),
         "git": git_revision(),
+        "uv_lock_sha256": None if lock is None else sha256_file(lock),
     }
 
 

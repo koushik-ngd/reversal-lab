@@ -1,6 +1,6 @@
 # Architecture
 
-Status: describes the code as of M2 (`0.1.0.dev0`). Planned components are marked **planned**.
+Status: describes the code as of M3A (`0.1.0.dev0`). Planned components are marked **planned**.
 
 ## Layering
 
@@ -8,8 +8,8 @@ Status: describes the code as of M2 (`0.1.0.dev0`). Planned components are marke
 contracts/     validated containers and array checks          (no dependencies on other layers)
    ↑
 policies/      Policy protocol, sampling, reference policies  (depends on contracts)
-data/          synthetic environment with ground truth         (contracts, policies)
-evaluation/    importance weights, IPS, SNIPS, diagnostics     (contracts)
+data/          synthetic environment and the Open Bandit adapter (contracts, policies)
+evaluation/    importance weights, IPS, SNIPS, diagnostics, OBP bridge (contracts)
    ↑
 experiments/   configs, Monte Carlo runner, provenance         (all of the above)
    ↑
@@ -23,7 +23,8 @@ Rules enforced by convention and review:
   path serves synthetic and real data.
 * Policies are deterministic functions `context -> action distribution`. All
   randomness flows through explicit `numpy.random.Generator` arguments.
-* Nothing below `experiments/` performs I/O, reads configuration, or logs.
+* Estimators do not perform I/O. The Open Bandit adapter does: it is a file
+  reader with a typed result. It does not estimate a policy value.
 * Statistical problems (low ESS, heavy weights) are *reported* by diagnostics.
   Identification failures (support violation, all-zero weights for SNIPS),
   non-finite importance weights, and contract violations *raise* typed exceptions
@@ -54,7 +55,7 @@ stale candidate matrix.
   Direct Method and Doubly Robust estimators (M3) need fitted reward models, so
   they will get an explicit fit/estimate split with cross-fitting; the
   `Estimator` protocol will be revisited then rather than designed speculatively now.
-* **argparse, not click/typer.** There are only two commands, and argparse adds no dependency.
+* **argparse, not click/typer.** There are three commands, and argparse adds no dependency.
 * **JSON run artifacts, not MLflow.** One self-describing `run.json` per run
   contains the config, its hash, results, a results hash, warnings, timings, and
   provenance. MLflow can be added later as an optional sink.
@@ -65,8 +66,9 @@ stale candidate matrix.
 ## Planned (not implemented)
 
 * `evaluation/`: reward models, Direct Method, Doubly Robust with cross-fitting,
-  bootstrap and cluster-robust intervals (M3).
-* `data/open_bandit.py`: Open Bandit Dataset loader, with a small-sample first and
-  DuckDB/Parquet columnar access later (M3).
+  bootstrap and cluster-robust intervals.
+* Columnar access to the full Open Bandit log, after its license is read.
+  The small-sample adapter is `data/open_bandit.py`. `evaluation/obp_reference.py`
+  runs upstream IPW/SNIPW from a local checkout. OBP is not a package dependency.
 * `reversal/`: decision rule, perturbation sets, reversal search, fragility (M4).
 * `reporting/`, `service/` (FastAPI), dashboard, containers (M5–M7).

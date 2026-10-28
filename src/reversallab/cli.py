@@ -16,9 +16,10 @@ from pydantic import ValidationError
 
 from reversallab import __version__
 from reversallab.exceptions import ConfigurationError, ReversalLabError
-from reversallab.experiments.config import load_config
+from reversallab.experiments.config import load_config, load_parity_config
 from reversallab.experiments.estimator_validation import run_estimator_validation
 from reversallab.experiments.metadata import load_run, to_jsonable, write_run
+from reversallab.experiments.open_bandit_parity import run_open_bandit_parity
 
 logger = logging.getLogger("reversallab")
 
@@ -28,7 +29,10 @@ def _fmt(value: Any, spec: str) -> str:
 
 
 def format_report(run: dict[str, Any]) -> str:
-    """Human-readable summary of an estimator-validation ``run.json``."""
+    """Human-readable summary of a ``run.json`` produced by this package."""
+    results = run.get("results", {})
+    if isinstance(results, dict) and "comparisons" in results:
+        return _format_parity_report(run)
     lines = [
         f"Run:      {run['run_id']}",
         f"Config:   sha256 {run['config_sha256'][:12]}  seed={run['config']['seed']}  "
@@ -54,6 +58,42 @@ def format_report(run: dict[str, Any]) -> str:
                     f"{_fmt(s.get('ci_coverage'), '7.3f')}"
                     f"{cell['diagnostics']['mean_ess_fraction']:>7.3f}{s['n_failed']:>6}"
                 )
+    if run["warnings"]:
+        lines += ["", "Warnings:"] + [f"  - {w}" for w in run["warnings"]]
+    lines += ["", f"Reproduce: {run['reproduction_command']}"]
+    return "\n".join(lines)
+
+
+def _format_parity_report(run: dict[str, Any]) -> str:
+    lines = [
+        f"Run:      {run['run_id']}",
+        f"Config:   sha256 {run['config_sha256'][:12]}",
+        f"Results:  sha256 {run['results_sha256'][:12]}",
+        f"Git:      {run['provenance']['git']}",
+        f"Lock:     {run['provenance'].get('uv_lock_sha256')}",
+        "",
+    ]
+    header = (
+        f"{'policy':<8}{'campaign':<8}{'eval':<18}{'slice':<6}{'est':<6}"
+        f"{'ours':>12}{'obp':>12}{'abs diff':>12}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    for row in run["results"]["comparisons"]:
+        for name, ours_key, obp_key in (
+            ("ips", "ips", "ipw"),
+            ("snips", "snips", "snipw"),
+        ):
+            ours = row["reversallab"][ours_key]
+            reference = row["obp"][obp_key]
+            prefix = (
+                f"{row['behavior_policy']:<8}{row['campaign']:<8}{row['evaluation_policy']:<18}"
+                f"{row['position']!s:<6}{name:<6}"
+            )
+            if ours is None or reference is None:
+                lines.append(f"{prefix}{'undefined':>12}{'undefined':>12}{'n/a':>12}")
+            else:
+                lines.append(f"{prefix}{ours:12.6g}{reference:12.6g}{abs(ours - reference):12.3g}")
     if run["warnings"]:
         lines += ["", "Warnings:"] + [f"  - {w}" for w in run["warnings"]]
     lines += ["", f"Reproduce: {run['reproduction_command']}"]
@@ -89,6 +129,26 @@ def _cmd_validate_estimators(args: argparse.Namespace) -> int:
     print(format_report(load_run(run_dir)))
     print(f"\nWrote {run_dir / 'run.json'}")
     return 0
+
+
+def _cmd_compare_reference(args: argparse.Namespace) -> int:
+    config = load_parity_config(args.config)
+    config_dict = to_jsonable(config.model_dump(mode="json"))
+    logger.info("experiment=%s", config.name)
+    output = run_open_bandit_parity(config)
+    command = f"reversallab compare-reference --config {Path(args.config).as_posix()}"
+    run_dir = write_run(
+        Path(args.output_dir),
+        name=config.name,
+        config=config_dict,
+        results=output.results,
+        warnings=output.warnings,
+        runtime=output.runtime,
+        reproduction_command=command,
+    )
+    print(format_report(load_run(run_dir)))
+    print(f"\nWrote {run_dir / 'run.json'}")
+    return 0 if output.matched else 1
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
@@ -133,6 +193,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the configured number of replications (recorded in the run config).",
     )
     p_val.set_defaults(func=_cmd_validate_estimators)
+
+    p_ref = sub.add_parser(
+        "compare-reference",
+        help="Compare IPS/SNIPS with Open Bandit Pipeline on the small sample.",
+        description="Load the small Open Bandit Dataset files named in the config, "
+        "evaluate the named policies with ReversalLab and with OBP's IPW and SNIPW "
+        "on the same arrays, and write the differences. Exits 1 if any difference "
+        "exceeds the configured tolerance. Does not download the full dataset.",
+    )
+    p_ref.add_argument("--config", required=True, help="Path to an experiment YAML file.")
+    p_ref.add_argument(
+        "--output-dir", default="runs", help="Directory in which a new run directory is created."
+    )
+    p_ref.set_defaults(func=_cmd_compare_reference)
 
     p_rep = sub.add_parser(
         "report",

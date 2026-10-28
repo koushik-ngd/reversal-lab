@@ -35,6 +35,12 @@ A diagnostic is not a correction.
    contexts, estimation raises `SupportViolationError`. If the full distribution
    is absent, support is not identified from the log, and diagnostics report
    `support_unverifiable`. The estimate is still returned, and it can be biased.
+   Observed-action propensities cannot supply the missing check: an action that
+   was never logged leaves no probability behind. On the Open Bandit random
+   files every propensity equals `1/K`, and the adapter stores the uniform
+   matrix that column is consistent with. On the BTS files the matrix stays
+   missing. The poor-overlap gap between the Wald SE and the empirical SD is
+   audited in `docs/standard_error_audit.md`.
 8. Action probabilities are finite, nonnegative, and each row sums to 1 within
    absolute tolerance `1e-6`. Rows are not renormalised.
 

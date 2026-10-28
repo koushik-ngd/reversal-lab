@@ -171,24 +171,26 @@ only together with a variance estimator that respects the group. Success is a
 measured coverage curve with Monte Carlo error, including the region where
 coverage fails.
 
-## Experiment 3 — Open Bandit Dataset (not run)
+## Experiment 3 — Open Bandit reference parity (small sample, run)
 
-Blocked on a written estimand. Before any estimate:
+The estimand is in `docs/open_bandit_estimand.md`. The file audit is in
+`docs/open_bandit_data_audit.md`. The comparison target is Open Bandit
+Pipeline's IPW and SNIPW on the same arrays, with clipping off. A mismatch
+is a bug investigation, not a new estimator.
 
-1. Read the data file that will actually be used and record column names,
-   dtypes, action cardinality, and the probability column.
-2. Resolve the `action_prob` / `propensity_score` and item-index discrepancies
-   documented in `limitations.md`.
-3. State whether the unit is a position-level row or a three-slot impression,
-   and which policy value that choice estimates.
-4. Confirm the license at the distribution site. Do not commit the data.
-5. Start from the small 10,000-row files. Use a columnar scan only after the
-   small-file path matches a published OBP figure closely enough to name the
-   residual.
+The small-sample run is experiment 002. It compared 30 policy/slice pairs.
+The largest absolute difference was `1.73e-18`, inside absolute and relative
+tolerance `1e-12`. Numbers and provenance are in
+`experiments/002_open_bandit_parity/README.md`.
 
-The comparison target is Open Bandit Pipeline's IPW and SNIPW on the same
-arrays, with the same propensity column. A mismatch is a bug investigation,
-not a new estimator.
+Still required before any full-log estimate:
+
+1. Read the license at https://research.zozo.com/data.html.
+2. Re-check column names on a file from that distribution. Do not assume the
+   small-sample header is the full-log header.
+3. Keep the position-level estimand, or write a different one if a real slate
+   key is present. Do not compare a 10,000-row estimate with a published
+   full-data figure.
 
 ## Experiment 4 — Decision reversal (not run)
 

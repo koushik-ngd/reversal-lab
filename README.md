@@ -4,10 +4,11 @@ ReversalLab is a Python library for off-policy evaluation of contextual bandits,
 with a planned decision-reversal analysis that is not implemented yet.
 
 This version (0.1.0.dev0) estimates the value of a candidate policy from logged
-single-position data using inverse propensity scoring (IPS) and self-normalized
-IPS (SNIPS). It checks those estimators against a synthetic environment whose
-policy value is known up to a reported Monte Carlo error. IPS and SNIPS are
-standard estimators. They are not a research claim.
+data using inverse propensity scoring (IPS) and self-normalized IPS (SNIPS).
+It checks those estimators against a synthetic environment whose policy value
+is known up to a reported Monte Carlo error, and against Open Bandit Pipeline's
+IPW and SNIPW on the small Open Bandit sample. IPS and SNIPS are standard
+estimators. They are not a research claim.
 
 The question the project is being built to study, and has not yet studied, is
 whether a deployment comparison that looks favorable under ordinary offline
@@ -53,28 +54,42 @@ warnings, runtime, and the Python environment. The measured summary is written
 up in [`experiments/001_estimator_validation/README.md`](experiments/001_estimator_validation/README.md)
 for the revision that produced it. Re-running the command is the check.
 
-`reversallab --help` lists the two commands that exist: `validate-estimators`
-and `report`.
+## Compare IPS and SNIPS with Open Bandit Pipeline
+
+```text
+uv run reversallab compare-reference --config configs/experiments/002_open_bandit_parity.yaml
+```
+
+This reads the 10,000-row sample from a local `st-tech/zr-obp` checkout at
+`data/raw/zr-obp`. It does not download the full dataset. The estimand, the
+file audit, and the recorded comparison are in
+[`docs/open_bandit_estimand.md`](docs/open_bandit_estimand.md),
+[`docs/open_bandit_data_audit.md`](docs/open_bandit_data_audit.md), and
+[`experiments/002_open_bandit_parity/README.md`](experiments/002_open_bandit_parity/README.md).
+
+`reversallab --help` lists `validate-estimators`, `compare-reference`, and
+`report`.
 
 ## Layout
 
 ```text
 src/reversallab/
   contracts/      LoggedBanditData and array validation
-  data/           synthetic contextual bandit with a reference policy value
+  data/           synthetic bandit, Open Bandit small-sample adapter
   policies/       uniform, linear softmax, linear epsilon-greedy
-  evaluation/     importance weights, IPS, SNIPS, diagnostics
-  experiments/    config, Monte Carlo runner, run.json provenance
+  evaluation/     importance weights, IPS, SNIPS, diagnostics, OBP bridge
+  experiments/    config, Monte Carlo runner, reference parity, provenance
   cli.py
 configs/experiments/001_estimator_validation.yaml
 docs/             architecture, methodology, data contract, protocol,
-                  assumptions, limitations
+                  assumptions, limitations, Open Bandit audit and estimand
 tests/            unit, statistical, integration
 ```
 
-Direct Method, Doubly Robust, the Open Bandit Dataset, the reversal search,
-a service, and containers are not in this tree. The reasons and the entry
-conditions for the next milestone are in [`docs/limitations.md`](docs/limitations.md).
+Direct Method, Doubly Robust, the reversal search, a service, and containers
+are not in this tree. The small Open Bandit sample is. The full log is not.
+The reasons and the entry conditions for the next milestone are in
+[`docs/limitations.md`](docs/limitations.md).
 
 ## Mathematical scope
 

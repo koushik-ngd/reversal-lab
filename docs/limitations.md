@@ -40,7 +40,7 @@ as completed work.
 
 ## Data and ground truth
 
-* The only data source is a synthetic single-position contextual bandit.
+* One data source is a synthetic single-position contextual bandit.
   Contexts are isotropic Gaussian. Reward means are linear in the context, passed
   through a sigmoid for binary rewards. This is a correctness testbed. It is not
   a model of a production recommender.
@@ -48,44 +48,32 @@ as completed work.
   standard error. For Gaussian rewards and a uniform policy it has the closed
   form \(\bar b\), and that case is tested. Other policies do not have a closed
   form in this repository.
-* Real logged data are not loaded. No number in this repository is an Open
-  Bandit Dataset result.
+* The other data source is the 10,000-row Open Bandit sample. Its estimand is
+  the expected click of one position-level row. That is not a three-item slate
+  value. The files are not committed. The full log was not downloaded, and its
+  license at https://research.zozo.com/data.html has not been read.
 
-## Open Bandit Dataset (not integrated)
+## Open Bandit Dataset (small sample only)
 
-Checked on 2026-10-28, without downloading the data:
+Verified against the files on 2026-10-28. The write-up is
+`docs/open_bandit_data_audit.md` and `docs/open_bandit_estimand.md`.
 
-* Open Bandit Pipeline (`st-tech/zr-obp`) is Apache-2.0 and is the reference
-  library for a later numerical comparison. It is not a dependency yet.
-* The dataset is a 7-day ZOZOTOWN experiment with two logging policies
-  (uniform random, Bernoulli Thompson sampling) and three campaigns
-  (all, men, women). The small sample ships with the library (10,000 rows per
-  policy-campaign pair). The full log is about 26 million position-level rows
-  and is distributed from the ZOZO research site and as
-  `zozonext/open-bandit` on Hugging Face. It was not downloaded.
-* Each row is one recommended item in one of three interface positions, with a
-  click indicator and the probability of that item at that position. Timestamps
-  and hashed user features are present in both the library README and the
-  Hugging Face card.
-* The two public field lists disagree, so neither is treated as authoritative
-  until a file is read:
-  * `obd/README.md` in `zr-obp` names the probability column `action_prob` and
-    describes item indices `0-79` (all), `0-33` (men), `0-45` (women). The same
-    file describes item-context indices `0-80` for the all campaign.
-  * The Hugging Face card names the probability column `propensity_score` and
-    describes item indices `0-80`, `0-33`, and `0-46`. Its viewer also displays
-    two different row counts. Those counts are not used here.
-* The logged probability is the propensity of the displayed item at that
-  position. The full action distribution is not a column. Whether positions are
-  filled without replacement, and whether rows that share a user and a timestamp
-  are one slate, has to be taken from the paper and the loader, not guessed.
-* The data license is not stated in `obd/README.md`. The files will not be
-  copied into this repository until that license is read at the distribution
-  site. Citation for the accompanying paper is arXiv:2008.07146. The README and
-  the dataset card use different titles for that preprint; the PDF is the
-  citation to use in a later research report.
-* A single-position IPS applied to these rows would answer a question this
-  schema does not state. M3 has to name the estimand first.
+* The probability column in the files is `propensity_score`. The README in the
+  same commit still says `action_prob`. The adapter does not alias them.
+* Behavior-file item ids are `0–79`, `0–33`, and `0–45`. The item tables have
+  the same ids. The README's item-context ranges `0–80` and `0–46` do not match
+  these files.
+* Random-policy propensities are exactly `1/K`, and the adapter stores a uniform
+  logging distribution in that case. BTS propensities are only the displayed
+  action's probability. Support is not verifiable from those values.
+* User-feature hashes repeat. Estimators still assume independent rows, so the
+  Wald intervals would be anti-conservative if those hashes are a dependence unit.
+  Experiment 002 does not report intervals.
+* About 40–70 clicks per file. That sample is not evidence about interval coverage.
+* IPS and SNIPS match OBP's IPW and SNIPW on the same arrays (experiment 002).
+  That match is not a published full-dataset benchmark.
+* The small files ship inside Apache-2.0 `zr-obp`. Cite arXiv:2008.07146 when
+  using them. The full-data license is still unread.
 
 ## Decision reversal
 
@@ -96,10 +84,11 @@ Checked on 2026-10-28, without downloading the data:
 
 ## Reproducibility gaps
 
-* Run artifacts record `git commit: null` until this tree has a commit.
-  Config and result SHA-256 hashes still identify the logical experiment.
-* Runtime and platform are recorded and are excluded from `results_sha256`.
-* This version has not been compared numerically with Open Bandit Pipeline.
-  Hand calculation and the synthetic Monte Carlo checks are the evidence that
-  IPS and SNIPS are implemented as defined. They are not a comparison with
-  prior software.
+* The M2 baseline commit is `2a83f9e184f51f1b9356f8d32ac7601266b22f2e`.
+  Later edits stay dirty in `run.json` until they are committed. `uv.lock`
+  is hashed into provenance. Runtime and platform stay outside `results_sha256`.
+* The Wald interval undercovers under poor overlap. The formula audit is
+  `docs/standard_error_audit.md`. No replacement interval is implemented.
+* OBP is executed from a local source checkout, not installed as a dependency.
+  Its package init does not import on this Python. The bridge is described in
+  experiment 002.

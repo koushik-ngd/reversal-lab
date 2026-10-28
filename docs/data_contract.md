@@ -34,9 +34,10 @@ Evaluation-policy input, passed alongside the data:
 
 ## Not covered
 
-* Slates and multiple positions. A single-position estimator must not be applied to
-  slate data. The Open Bandit Dataset has positions, and its handling is an explicit
-  M3 design task.
-* Time stamps and cohort labels. They will be added only after verifying that they
-  exist in the source data.
+* Slate values. The Open Bandit adapter keeps one row as one position. The
+  estimand is in `docs/open_bandit_estimand.md`. A three-item slate value needs
+  a joint record this contract does not contain.
+* Timestamps and user-feature hashes are stored by the Open Bandit adapter.
+  They are not arguments of IPS or SNIPS. `group_id` may hold the user-feature
+  tuple. Estimators do not cluster on it.
 * Continuous actions.
