@@ -1,0 +1,67 @@
+# Experiment 001: estimator validation against synthetic ground truth.
+# Protocol, acceptance criteria and results: experiments/001_estimator_validation/README.md
+# Changing this file changes config_sha256 and therefore the run identity.
+# Reproduce: uv run reversallab validate-estimators --config configs/experiments/001_estimator_validation.yaml
+
+name: "001_estimator_validation"
+description: >
+  Bias, RMSE and Wald-interval coverage of IPS and SNIPS across overlap regimes and
+  sample sizes, relative to the exact (over actions) / Monte Carlo (over contexts)
+  reference policy value.
+seed: 20261028
+n_replications: 500
+confidence_level: 0.95
+reference_n_contexts: 1000000
+estimators: [ips, snips]
+include_logging_action_dist: true
+
+environment:
+  n_actions: 10
+  context_dim: 5
+  reward_type: binary
+  reward_scale: 1.5
+  bias_scale: 0.5
+
+diagnostics:
+  min_ess_fraction: 0.1
+  max_weight_share: 0.05
+  mean_weight_z: 4.0
+
+scenarios:
+  - name: on_policy
+    description: Logging and evaluation policies are identical; all weights equal 1.
+    n_samples: [500, 2000, 8000]
+    logging_policy: {kind: softmax, inverse_temperature: 1.0, scores: reward}
+    evaluation_policy: {kind: softmax, inverse_temperature: 1.0, scores: reward}
+
+  - name: uniform_logging
+    description: Uniform logger, informed stochastic candidate; weights bounded by K = 10.
+    n_samples: [500, 2000, 8000]
+    logging_policy: {kind: uniform}
+    evaluation_policy: {kind: softmax, inverse_temperature: 3.0, scores: reward}
+
+  - name: moderate_mismatch
+    description: Mildly informed softmax logger, near-greedy candidate.
+    n_samples: [500, 2000, 8000]
+    logging_policy: {kind: softmax, inverse_temperature: 1.0, scores: reward}
+    evaluation_policy: {kind: epsilon_greedy, epsilon: 0.1, scores: reward}
+
+  - name: deterministic_candidate
+    description: Uniform logger, deterministic greedy candidate (epsilon = 0).
+    n_samples: [500, 2000, 8000]
+    logging_policy: {kind: uniform}
+    evaluation_policy: {kind: epsilon_greedy, epsilon: 0.0, scores: reward}
+
+  - name: inferior_candidate
+    description: Candidate prefers low-reward actions; known to be worse than the logger.
+    n_samples: [500, 2000, 8000]
+    logging_policy: {kind: softmax, inverse_temperature: 1.0, scores: reward}
+    evaluation_policy: {kind: softmax, inverse_temperature: -1.0, scores: reward}
+
+  - name: poor_overlap
+    description: >
+      Confident logger driven by reward-independent scores, near-greedy informed
+      candidate. Support holds but weights are heavy-tailed.
+    n_samples: [500, 2000, 8000]
+    logging_policy: {kind: softmax, inverse_temperature: 3.0, scores: random, score_seed: 7}
+    evaluation_policy: {kind: epsilon_greedy, epsilon: 0.05, scores: reward}
