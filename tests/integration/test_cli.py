@@ -204,3 +204,55 @@ def test_calibrate_uncertainty_cli(tmp_path: Path, capsys: pytest.CaptureFixture
     assert 0.0 <= cell["methods"]["dr_influence_wald"]["empirical_coverage"] <= 1.0
 
 
+REVERSAL_CONFIG = """
+name: cli_reversal_smoke
+seed: 42
+confidence_level: 0.95
+n_folds: 2
+reference_n_contexts: 5000
+scenarios:
+  - name: smoke_reversal
+    n_samples: 40
+    margin: 0.02
+    max_epsilon: 0.40
+    split_dim: 0
+    split_threshold: 0.0
+    environment: {n_actions: 2, context_dim: 2, reward_type: binary}
+    logging_policy: {kind: uniform}
+    candidate_policy: {kind: softmax, inverse_temperature: 1.0, scores: reward}
+    baseline_policy: {kind: uniform}
+    reward_model: {specification: correct}
+    min_propensity_threshold: 0.0001
+"""
+
+
+def test_run_reversal_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    cfg = tmp_path / "reversal_config.yaml"
+    cfg.write_text(REVERSAL_CONFIG, encoding="utf-8")
+    code = main(
+        [
+            "--log-level",
+            "WARNING",
+            "run-reversal",
+            "--config",
+            str(cfg),
+            "--output-dir",
+            str(tmp_path / "reversal_runs"),
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "smoke_reversal" in out
+    assert "reversallab run-reversal" in out
+
+    (run_dir,) = (tmp_path / "reversal_runs").iterdir()
+    run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert run["results"]["experiment"] == "cli_reversal_smoke"
+    sc = run["results"]["scenarios"][0]
+    assert sc["scenario"] == "smoke_reversal"
+    assert "paired_estimation" in sc
+    assert "reversal_search" in sc
+    assert sc["reversal_search"]["status"] in (
+        "REVERSAL_FOUND",
+        "NO_REVERSAL_FOUND_WITHIN_BOUNDS",
+    )

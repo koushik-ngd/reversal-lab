@@ -21,11 +21,13 @@ from reversallab.experiments.config import (
     load_advanced_config,
     load_config,
     load_parity_config,
+    load_reversal_config,
     load_uncertainty_config,
 )
 from reversallab.experiments.estimator_validation import run_estimator_validation
 from reversallab.experiments.metadata import load_run, to_jsonable, write_run
 from reversallab.experiments.open_bandit_parity import run_open_bandit_parity
+from reversallab.experiments.reversal_prototype import run_reversal_prototype
 from reversallab.experiments.uncertainty_calibration import run_uncertainty_calibration
 
 logger = logging.getLogger("reversallab")
@@ -42,6 +44,8 @@ def format_report(run: dict[str, Any]) -> str:
         return _format_parity_report(run)
     if isinstance(results, dict) and "scenarios" in results:
         scs = results["scenarios"]
+        if scs and "reversal_search" in scs[0]:
+            return _format_reversal_report(run)
         if scs and scs[0].get("cells") and "methods" in scs[0]["cells"][0]:
             return _format_uncertainty_report(run)
     lines = [
@@ -104,6 +108,44 @@ def _format_uncertainty_report(run: dict[str, Any]) -> str:
                     f"{_fmt(s.get('coverage_monte_carlo_se'), '7.3f')}"
                     f"{_fmt(s.get('mean_interval_width'), '8.4f')}{s['n_failed']:>5}"
                 )
+    if run["warnings"]:
+        lines += ["", "Warnings:"] + [f"  - {w}" for w in run["warnings"]]
+    lines += ["", f"Reproduce: {run['reproduction_command']}"]
+    return "\n".join(lines)
+
+
+def _format_reversal_report(run: dict[str, Any]) -> str:
+    lines = [
+        f"Run:      {run['run_id']}",
+        (
+            f"Config:   sha256 {run['config_sha256'][:12]}  seed={run['config']['seed']}  "
+            f"confidence_level={run['config'].get('confidence_level', 0.95)}"
+        ),
+        f"Results:  sha256 {run['results_sha256'][:12]}",
+        f"Git:      {run['provenance']['git']}",
+        "",
+    ]
+    header = (
+        f"{'scenario':<22}{'N':>5}  {'margin':>6}  {'true Delta':>10}  {'est Delta':>10}  "
+        f"{'CI(95%)':^17}  {'naive':<9}{'baseline':<13}{'d_rev*':>8}  {'status':<20}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    for sc in run["results"]["scenarios"]:
+        pe = sc["paired_estimation"]
+        ci_str = f"[{pe['ci_lower']:+.3f}, {pe['ci_upper']:+.3f}]"
+        dec = sc["decisions"]
+        rev = sc["reversal_search"]
+        d_rev_val = rev["reversal_distance"]
+        d_rev_str = f"{d_rev_val:.4f}" if d_rev_val is not None else "None"
+        row = (
+            f"{sc['scenario']:<22}{sc['n_samples']:>5}  {sc['margin']:>6.3f}  "
+            f"{sc['ground_truth']['true_delta']:>+10.4f}  {pe['point_estimate']:>+10.4f}  "
+            f"{ci_str:^17}  {dec['naive_point_estimate']:<9}"
+            f"{dec['baseline_confidence_bound']:<13}"
+            f"{d_rev_str:>8}  {rev['status']:<20}"
+        )
+        lines.append(row)
     if run["warnings"]:
         lines += ["", "Warnings:"] + [f"  - {w}" for w in run["warnings"]]
     lines += ["", f"Reproduce: {run['reproduction_command']}"]
@@ -272,6 +314,41 @@ def _cmd_compare_reference(args: argparse.Namespace) -> int:
     return 0 if output.matched else 1
 
 
+def _cmd_run_reversal(args: argparse.Namespace) -> int:
+    config = load_reversal_config(args.config)
+    overrides: dict[str, Any] = {}
+    if args.seed is not None:
+        overrides["seed"] = args.seed
+    if overrides:
+        try:
+            config = type(config).model_validate({**config.model_dump(), **overrides})
+        except ValidationError as exc:
+            raise ConfigurationError(f"Invalid CLI argument overrides:\n{exc}") from exc
+    config_dict = to_jsonable(config.model_dump(mode="json"))
+    logger.info(
+        "experiment=%s seed=%d scenarios=%d",
+        config.name,
+        config.seed,
+        len(config.scenarios),
+    )
+    output = run_reversal_prototype(config)
+    command = f"reversallab run-reversal --config {Path(args.config).as_posix()}"
+    if args.seed is not None:
+        command += f" --seed {args.seed}"
+    run_dir = write_run(
+        Path(args.output_dir),
+        name=config.name,
+        config=config_dict,
+        results=output.results,
+        warnings=output.warnings,
+        runtime=output.runtime,
+        reproduction_command=command,
+    )
+    print(format_report(load_run(run_dir)))
+    print(f"\nWrote {run_dir / 'run.json'}")
+    return 0
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     try:
         run = load_run(Path(args.run_dir))
@@ -375,6 +452,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir", default="runs", help="Directory in which a new run directory is created."
     )
     p_ref.set_defaults(func=_cmd_compare_reference)
+
+    p_rev = sub.add_parser(
+        "run-reversal",
+        help="Run decision-reversal research prototype (experiment 005).",
+        description=(
+            "Evaluate paired policy-value differences, baseline deployment decisions, "
+            "and 1-D context mixture perturbation search across synthetic scenarios."
+        ),
+    )
+    p_rev.add_argument("--config", required=True, help="Path to an experiment YAML file.")
+    p_rev.add_argument(
+        "--output-dir", default="runs", help="Directory in which a new run directory is created."
+    )
+    p_rev.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override the configured random seed.",
+    )
+    p_rev.set_defaults(func=_cmd_run_reversal)
 
     p_rep = sub.add_parser(
         "report",

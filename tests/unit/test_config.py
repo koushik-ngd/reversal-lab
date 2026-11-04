@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from reversallab.data.synthetic import SyntheticBanditEnvironment
+from reversallab.data import SyntheticBanditEnvironment
 from reversallab.exceptions import ConfigurationError
 from reversallab.experiments.config import (
     EpsilonGreedyPolicySpec,
@@ -13,6 +13,7 @@ from reversallab.experiments.config import (
     build_policy,
     load_advanced_config,
     load_config,
+    load_reversal_config,
 )
 from reversallab.policies import EpsilonGreedyLinearPolicy, LinearSoftmaxPolicy
 
@@ -21,6 +22,9 @@ REPO_CONFIG = (
 )
 ADVANCED_CONFIG = (
     Path(__file__).parents[2] / "configs" / "experiments" / "003_advanced_estimators.yaml"
+)
+REVERSAL_CONFIG = (
+    Path(__file__).parents[2] / "configs" / "experiments" / "005_reversal_prototype.yaml"
 )
 
 MINIMAL = """
@@ -57,6 +61,21 @@ def test_advanced_repository_config_is_valid() -> None:
     assert len(config.scenarios) == 6
 
 
+def test_reversal_repository_config_is_valid() -> None:
+    config = load_reversal_config(REVERSAL_CONFIG)
+    assert config.name == "005_reversal_prototype"
+    assert config.n_folds == 5
+    assert config.confidence_level == 0.95
+    assert len(config.scenarios) == 4
+    names = [s.name for s in config.scenarios]
+    assert names == [
+        "robust_superiority",
+        "fragile_superiority",
+        "high_uncertainty",
+        "poor_overlap",
+    ]
+
+
 def test_minimal_config(tmp_path: Path) -> None:
     assert load_config(_write(tmp_path, MINIMAL)).confidence_level == 0.95
 
@@ -82,7 +101,7 @@ def test_minimal_config(tmp_path: Path) -> None:
 def test_invalid_configs(tmp_path: Path, old: str, new: str, match: str) -> None:
     assert old in MINIMAL
     with pytest.raises(ConfigurationError, match=match):
-        load_config(_write(tmp_path, MINIMAL.replace(old, new)))
+        load_config(_write(tmp_path, MINIMAL.replace(old, new, 1)))
 
 
 def test_missing_and_malformed_files(tmp_path: Path) -> None:

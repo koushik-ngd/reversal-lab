@@ -262,6 +262,43 @@ class OpenBanditParityConfig(_Strict):
         return self
 
 
+class ReversalScenarioConfig(_Strict):
+    """Specification of a single decision-reversal scenario."""
+
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_\-]+$")
+    description: str = ""
+    n_samples: int = Field(ge=2)
+    margin: float = Field(ge=0.0)
+    max_epsilon: float = Field(default=0.40, gt=0.0, le=0.50)
+    split_dim: int = Field(default=0, ge=0)
+    split_threshold: float = Field(default=0.0)
+    logging_policy: PolicySpec
+    baseline_policy: PolicySpec
+    candidate_policy: PolicySpec
+    environment: EnvironmentConfig
+    reward_model: RewardModelSpec = RewardModelSpec()
+    min_propensity_threshold: float = Field(default=1e-4, ge=0.0)
+
+
+class ReversalPrototypeConfig(_Strict):
+    """Configuration for experiment 005: decision-reversal prototype."""
+
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_\-]+$")
+    description: str = ""
+    seed: int = Field(ge=0)
+    confidence_level: float = Field(default=0.95, gt=0.0, lt=1.0)
+    n_folds: int = Field(default=5, ge=2)
+    reference_n_contexts: int = Field(default=200_000, ge=1000)
+    scenarios: list[ReversalScenarioConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> ReversalPrototypeConfig:
+        names = [s.name for s in self.scenarios]
+        if len(set(names)) != len(names):
+            raise ValueError("scenario names must be unique.")
+        return self
+
+
 def load_config(path: str | Path) -> EstimatorValidationConfig:
     """Load and validate a YAML experiment config, raising :class:`ConfigurationError`."""
     p = Path(path)
@@ -326,6 +363,23 @@ def load_uncertainty_config(path: str | Path) -> UncertaintyCalibrationConfig:
         raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
     try:
         return UncertaintyCalibrationConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
+
+
+def load_reversal_config(path: str | Path) -> ReversalPrototypeConfig:
+    """Load experiment 005 decision-reversal config."""
+    p = Path(path)
+    if not p.is_file():
+        raise ConfigurationError(f"Config file not found: {p}")
+    try:
+        raw: Any = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(f"Could not parse YAML in {p}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
+    try:
+        return ReversalPrototypeConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
 

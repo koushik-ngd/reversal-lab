@@ -1,0 +1,412 @@
+{
+  "schema_version": "1",
+  "run_id": "005_reversal_prototype_20261104T123534861201Z_f1b2a17a",
+  "experiment_name": "005_reversal_prototype",
+  "created_utc": "2026-11-04T12:35:34.861201+00:00",
+  "config": {
+    "name": "005_reversal_prototype",
+    "description": "Milestone M4A Decision-Reversal Research Prototype across 4 synthetic scenarios.",
+    "seed": 42,
+    "confidence_level": 0.95,
+    "n_folds": 5,
+    "reference_n_contexts": 100000,
+    "scenarios": [
+      {
+        "name": "robust_superiority",
+        "description": "Candidate strongly dominates baseline in both strata; no reversal within bounds.",
+        "n_samples": 2000,
+        "margin": 0.02,
+        "max_epsilon": 0.4,
+        "split_dim": 0,
+        "split_threshold": 0.0,
+        "logging_policy": {
+          "kind": "uniform"
+        },
+        "baseline_policy": {
+          "kind": "uniform"
+        },
+        "candidate_policy": {
+          "scores": "reward",
+          "score_seed": null,
+          "kind": "softmax",
+          "inverse_temperature": 1.5
+        },
+        "environment": {
+          "n_actions": 2,
+          "context_dim": 2,
+          "reward_type": "binary",
+          "reward_scale": 1.5,
+          "bias_scale": 0.0,
+          "noise_std": 1.0
+        },
+        "reward_model": {
+          "specification": "correct",
+          "alpha": 1.0,
+          "standardize": false
+        },
+        "min_propensity_threshold": 0.0001
+      },
+      {
+        "name": "fragile_superiority",
+        "description": "Candidate beats baseline in aggregate, but is inferior in stratum 1; shifts reverse RECOMMEND.",
+        "n_samples": 2000,
+        "margin": 0.02,
+        "max_epsilon": 0.4,
+        "split_dim": 0,
+        "split_threshold": 0.0,
+        "logging_policy": {
+          "kind": "uniform"
+        },
+        "baseline_policy": {
+          "scores": "random",
+          "score_seed": 3,
+          "kind": "softmax",
+          "inverse_temperature": 1.5
+        },
+        "candidate_policy": {
+          "scores": "random",
+          "score_seed": 7,
+          "kind": "softmax",
+          "inverse_temperature": 1.5
+        },
+        "environment": {
+          "n_actions": 3,
+          "context_dim": 2,
+          "reward_type": "binary",
+          "reward_scale": 1.5,
+          "bias_scale": 0.0,
+          "noise_std": 1.0
+        },
+        "reward_model": {
+          "specification": "correct",
+          "alpha": 1.0,
+          "standardize": false
+        },
+        "min_propensity_threshold": 0.0001
+      },
+      {
+        "name": "high_uncertainty",
+        "description": "Candidate has positive expected margin, but small sample size N=80 leaves CI spanning margin.",
+        "n_samples": 80,
+        "margin": 0.03,
+        "max_epsilon": 0.4,
+        "split_dim": 0,
+        "split_threshold": 0.0,
+        "logging_policy": {
+          "kind": "uniform"
+        },
+        "baseline_policy": {
+          "kind": "uniform"
+        },
+        "candidate_policy": {
+          "scores": "reward",
+          "score_seed": null,
+          "kind": "softmax",
+          "inverse_temperature": 1.5
+        },
+        "environment": {
+          "n_actions": 2,
+          "context_dim": 2,
+          "reward_type": "binary",
+          "reward_scale": 1.5,
+          "bias_scale": 0.0,
+          "noise_std": 1.0
+        },
+        "reward_model": {
+          "specification": "correct",
+          "alpha": 1.0,
+          "standardize": false
+        },
+        "min_propensity_threshold": 0.0001
+      },
+      {
+        "name": "poor_overlap",
+        "description": "Concentrated logging policy causes propensity deficit below threshold, tripping diagnostic gate.",
+        "n_samples": 2000,
+        "margin": 0.02,
+        "max_epsilon": 0.4,
+        "split_dim": 0,
+        "split_threshold": 0.0,
+        "logging_policy": {
+          "scores": "random",
+          "score_seed": 777,
+          "kind": "softmax",
+          "inverse_temperature": 4.0
+        },
+        "baseline_policy": {
+          "kind": "uniform"
+        },
+        "candidate_policy": {
+          "scores": "reward",
+          "score_seed": null,
+          "kind": "softmax",
+          "inverse_temperature": 1.5
+        },
+        "environment": {
+          "n_actions": 3,
+          "context_dim": 2,
+          "reward_type": "binary",
+          "reward_scale": 1.5,
+          "bias_scale": 0.0,
+          "noise_std": 1.0
+        },
+        "reward_model": {
+          "specification": "correct",
+          "alpha": 1.0,
+          "standardize": false
+        },
+        "min_propensity_threshold": 0.02
+      }
+    ]
+  },
+  "config_sha256": "f1b2a17a2db6f05c66171643c3d43c3145c417a382bb1b9b776fb7575f293fbf",
+  "results": {
+    "experiment": "005_reversal_prototype",
+    "seed": 42,
+    "confidence_level": 0.95,
+    "n_folds": 5,
+    "scenarios": [
+      {
+        "scenario": "robust_superiority",
+        "n_samples": 2000,
+        "margin": 0.02,
+        "max_epsilon": 0.4,
+        "min_propensity": 0.5,
+        "ground_truth": {
+          "true_delta": 0.0433332552498605,
+          "true_delta_0": 0.04331326504630248,
+          "true_delta_1": 0.04335315928186968,
+          "true_q0": 0.49892,
+          "true_reversal_distance": null,
+          "true_reversal_q0": null,
+          "n_reference_contexts": 100000
+        },
+        "paired_estimation": {
+          "point_estimate": 0.05196820741660823,
+          "standard_error": 0.004989640367162255,
+          "ci_lower": 0.042188692001163,
+          "ci_upper": 0.06174772283205346,
+          "independent_standard_error": 0.016325437360161354,
+          "variance_reduction_pct": 90.65866731658804,
+          "covariance": 0.241623394006937
+        },
+        "stratum_estimates": {
+          "stratum_0": {
+            "n_samples": 963,
+            "weight": 0.4815,
+            "mean_diff": 0.04322398851261923,
+            "standard_error": 0.00716485302668514
+          },
+          "stratum_1": {
+            "n_samples": 1037,
+            "weight": 0.5185,
+            "mean_diff": 0.06008844155792108,
+            "standard_error": 0.0069462594877527165
+          }
+        },
+        "decisions": {
+          "naive_point_estimate": "RECOMMEND",
+          "baseline_confidence_bound": "RECOMMEND",
+          "reason": "Statistically significant superiority: Lower confidence bound (0.0422) strictly exceeds margin (0.0200).",
+          "diagnostic_passed": true
+        },
+        "reversal_search": {
+          "status": "NO_REVERSAL_FOUND_WITHIN_BOUNDS",
+          "initial_decision": "RECOMMEND",
+          "reversed_decision": null,
+          "reversal_distance": null,
+          "reversed_q0": null,
+          "transition": "NO_REVERSAL",
+          "fine_grid_verified": true,
+          "reversed_ci_lower": null,
+          "reversed_ci_upper": null
+        }
+      },
+      {
+        "scenario": "fragile_superiority",
+        "n_samples": 2000,
+        "margin": 0.02,
+        "max_epsilon": 0.4,
+        "min_propensity": 0.3333333333333333,
+        "ground_truth": {
+          "true_delta": 0.044149596457682884,
+          "true_delta_0": 0.11816046005626134,
+          "true_delta_1": -0.029867188246827703,
+          "true_q0": 0.50002,
+          "true_reversal_distance": 0.16314247192684023,
+          "true_reversal_q0": 0.3368775280731598,
+          "n_reference_contexts": 100000
+        },
+        "paired_estimation": {
+          "point_estimate": 0.04898167829770867,
+          "standard_error": 0.012081153370969301,
+          "ci_lower": 0.02530305279890418,
+          "ci_upper": 0.07266030379651317,
+          "independent_standard_error": 0.018370768933241213,
+          "variance_reduction_pct": 56.75238858523321,
+          "covariance": 0.19153088442565752
+        },
+        "stratum_estimates": {
+          "stratum_0": {
+            "n_samples": 1037,
+            "weight": 0.5185,
+            "mean_diff": 0.09791456737361359,
+            "standard_error": 0.018058843834948577
+          },
+          "stratum_1": {
+            "n_samples": 963,
+            "weight": 0.4815,
+            "mean_diff": -0.0037113704787330643,
+            "standard_error": 0.01568814808725752
+          }
+        },
+        "decisions": {
+          "naive_point_estimate": "RECOMMEND",
+          "baseline_confidence_bound": "RECOMMEND",
+          "reason": "Statistically significant superiority: Lower confidence bound (0.0253) strictly exceeds margin (0.0200).",
+          "diagnostic_passed": true
+        },
+        "reversal_search": {
+          "status": "REVERSAL_FOUND",
+          "initial_decision": "RECOMMEND",
+          "reversed_decision": "INCONCLUSIVE",
+          "reversal_distance": 0.056289859693877564,
+          "reversed_q0": 0.4622101403061224,
+          "transition": "RECOMMEND -> INCONCLUSIVE",
+          "fine_grid_verified": true,
+          "reversed_ci_lower": 0.019999952623640953,
+          "reversed_ci_upper": 0.06652238440584177
+        }
+      },
+      {
+        "scenario": "high_uncertainty",
+        "n_samples": 80,
+        "margin": 0.03,
+        "max_epsilon": 0.4,
+        "min_propensity": 0.5,
+        "ground_truth": {
+          "true_delta": 0.08833527317645781,
+          "true_delta_0": 0.08824391739698778,
+          "true_delta_1": 0.08842688144631591,
+          "true_q0": 0.50069,
+          "true_reversal_distance": null,
+          "true_reversal_q0": null,
+          "n_reference_contexts": 100000
+        },
+        "paired_estimation": {
+          "point_estimate": 0.08427444542838143,
+          "standard_error": 0.032237195734444064,
+          "ci_lower": 0.02109070282630282,
+          "ci_upper": 0.14745818803046004,
+          "independent_standard_error": 0.0896811898862688,
+          "variance_reduction_pct": 87.07853401568786,
+          "covariance": 0.2801391612238456
+        },
+        "stratum_estimates": {
+          "stratum_0": {
+            "n_samples": 44,
+            "weight": 0.55,
+            "mean_diff": 0.12347594933141162,
+            "standard_error": 0.04690064720201817
+          },
+          "stratum_1": {
+            "n_samples": 36,
+            "weight": 0.45,
+            "mean_diff": 0.03636149621356671,
+            "standard_error": 0.04231344445261411
+          }
+        },
+        "decisions": {
+          "naive_point_estimate": "RECOMMEND",
+          "baseline_confidence_bound": "INCONCLUSIVE",
+          "reason": "Inconclusive evidence: Confidence interval [0.0211, 0.1475] covers margin (0.0300).",
+          "diagnostic_passed": true
+        },
+        "reversal_search": {
+          "status": "REVERSAL_FOUND",
+          "initial_decision": "INCONCLUSIVE",
+          "reversed_decision": "RECOMMEND",
+          "reversal_distance": 0.2134705835459183,
+          "reversed_q0": 0.7634705835459183,
+          "transition": "INCONCLUSIVE -> RECOMMEND",
+          "fine_grid_verified": true,
+          "reversed_ci_lower": 0.03000000743361013,
+          "reversed_ci_upper": 0.1757416297078525
+        }
+      },
+      {
+        "scenario": "poor_overlap",
+        "n_samples": 2000,
+        "margin": 0.02,
+        "max_epsilon": 0.4,
+        "min_propensity": 0.010399365867812708,
+        "ground_truth": {
+          "true_delta": 0.19098235856074913,
+          "true_delta_0": 0.18151928424024957,
+          "true_delta_1": 0.20044732568539328,
+          "true_q0": 0.50005,
+          "true_reversal_distance": null,
+          "true_reversal_q0": null,
+          "n_reference_contexts": 100000
+        },
+        "paired_estimation": {
+          "point_estimate": 0.18245999614368427,
+          "standard_error": 0.015466938434564967,
+          "ci_lower": 0.1521453538608386,
+          "ci_upper": 0.21277463842652994,
+          "independent_standard_error": 0.026544649577491832,
+          "variance_reduction_pct": 66.04883191472908,
+          "covariance": 0.4653922366532143
+        },
+        "stratum_estimates": {
+          "stratum_0": {
+            "n_samples": 989,
+            "weight": 0.4945,
+            "mean_diff": 0.2012979058303324,
+            "standard_error": 0.014649693014425149
+          },
+          "stratum_1": {
+            "n_samples": 1011,
+            "weight": 0.5055,
+            "mean_diff": 0.1640320112969038,
+            "standard_error": 0.027029673291088862
+          }
+        },
+        "decisions": {
+          "naive_point_estimate": "RECOMMEND",
+          "baseline_confidence_bound": "INCONCLUSIVE",
+          "reason": "Diagnostic gate failure: minimum propensity (1.04e-02) below threshold (2.00e-02)",
+          "diagnostic_passed": false
+        },
+        "reversal_search": {
+          "status": "BASELINE_DIAGNOSTIC_FAILURE",
+          "initial_decision": "INCONCLUSIVE",
+          "reversed_decision": null,
+          "reversal_distance": null,
+          "reversed_q0": null,
+          "transition": "NO_REVERSAL",
+          "fine_grid_verified": true,
+          "reversed_ci_lower": null,
+          "reversed_ci_upper": null
+        }
+      }
+    ]
+  },
+  "results_sha256": "0e9b0dc4c45a2e2ff4abc40974d453a5bd4984ee51ea3c0e21d07fc41a1d385f",
+  "warnings": [],
+  "runtime": {
+    "wall_clock_seconds": 0.163
+  },
+  "provenance": {
+    "reversallab_version": "0.1.0.dev0",
+    "python_version": "3.12.13",
+    "numpy_version": "2.5.4",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "git": {
+      "commit": "ab4dfadb748ab13ac808351204a1b8902bffc572",
+      "dirty": true
+    },
+    "uv_lock_sha256": "0fc932eea79b2c661d1da60c35c4a22567b361facece1f1d78668302f6f7e307"
+  },
+  "reproduction_command": "reversallab run-reversal --config configs/experiments/005_reversal_prototype.yaml"
+}

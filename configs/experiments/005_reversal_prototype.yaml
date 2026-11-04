@@ -1,0 +1,118 @@
+name: "005_reversal_prototype"
+description: "Milestone M4A Decision-Reversal Research Prototype across 4 synthetic scenarios."
+seed: 42
+confidence_level: 0.95
+n_folds: 5
+reference_n_contexts: 100000
+
+scenarios:
+  - name: "robust_superiority"
+    description: "Candidate strongly dominates baseline in both strata; no reversal within bounds."
+    n_samples: 2000
+    margin: 0.02
+    max_epsilon: 0.40
+    split_dim: 0
+    split_threshold: 0.0
+    environment:
+      n_actions: 2
+      context_dim: 2
+      reward_type: "binary"
+      reward_scale: 1.5
+      bias_scale: 0.0
+    logging_policy:
+      kind: "uniform"
+    candidate_policy:
+      kind: "softmax"
+      scores: "reward"
+      inverse_temperature: 1.5
+    baseline_policy:
+      kind: "uniform"
+    reward_model:
+      specification: "correct"
+      alpha: 1.0
+    min_propensity_threshold: 0.0001
+
+  - name: "fragile_superiority"
+    description: "Candidate beats baseline in aggregate, but is inferior in stratum 1; shifts reverse RECOMMEND."
+    n_samples: 2000
+    margin: 0.02
+    max_epsilon: 0.40
+    split_dim: 0
+    split_threshold: 0.0
+    environment:
+      n_actions: 3
+      context_dim: 2
+      reward_type: "binary"
+      reward_scale: 1.5
+      bias_scale: 0.0
+    logging_policy:
+      kind: "uniform"
+    candidate_policy:
+      kind: "softmax"
+      scores: "random"
+      score_seed: 7
+      inverse_temperature: 1.5
+    baseline_policy:
+      kind: "softmax"
+      scores: "random"
+      score_seed: 3
+      inverse_temperature: 1.5
+    reward_model:
+      specification: "correct"
+      alpha: 1.0
+    min_propensity_threshold: 0.0001
+
+  - name: "high_uncertainty"
+    description: "Candidate has positive expected margin, but small sample size N=80 leaves CI spanning margin."
+    n_samples: 80
+    margin: 0.03
+    max_epsilon: 0.40
+    split_dim: 0
+    split_threshold: 0.0
+    environment:
+      n_actions: 2
+      context_dim: 2
+      reward_type: "binary"
+      reward_scale: 1.5
+      bias_scale: 0.0
+    logging_policy:
+      kind: "uniform"
+    candidate_policy:
+      kind: "softmax"
+      scores: "reward"
+      inverse_temperature: 1.5
+    baseline_policy:
+      kind: "uniform"
+    reward_model:
+      specification: "correct"
+      alpha: 1.0
+    min_propensity_threshold: 0.0001
+
+  - name: "poor_overlap"
+    description: "Concentrated logging policy causes propensity deficit below threshold, tripping diagnostic gate."
+    n_samples: 2000
+    margin: 0.02
+    max_epsilon: 0.40
+    split_dim: 0
+    split_threshold: 0.0
+    environment:
+      n_actions: 3
+      context_dim: 2
+      reward_type: "binary"
+      reward_scale: 1.5
+      bias_scale: 0.0
+    logging_policy:
+      kind: "softmax"
+      scores: "random"
+      score_seed: 777
+      inverse_temperature: 4.0
+    candidate_policy:
+      kind: "softmax"
+      scores: "reward"
+      inverse_temperature: 1.5
+    baseline_policy:
+      kind: "uniform"
+    reward_model:
+      specification: "correct"
+      alpha: 1.0
+    min_propensity_threshold: 0.02
