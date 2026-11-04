@@ -20,6 +20,7 @@ dependencies = [
     "numpy>=1.26",
     "pydantic>=2.6",
     "pyyaml>=6.0",
+    "scikit-learn>=1.9.1",
 ]
 
 [project.scripts]
@@ -65,3 +66,7 @@ files = ["src", "tests"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = "sklearn.*"
+ignore_missing_imports = true

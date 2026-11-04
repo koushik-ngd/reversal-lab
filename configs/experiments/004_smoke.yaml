@@ -1,0 +1,47 @@
+name: 004_smoke
+description: Smoke test for uncertainty calibration and CI methods.
+seed: 20261030
+n_replications: 2
+n_bootstraps: 10
+n_folds: 2
+confidence_level: 0.95
+reference_n_contexts: 10000
+
+uncertainty_methods:
+  - ips_wald
+  - snips_wald
+  - dm_naive_wald
+  - dr_influence_wald
+  - ips_bootstrap_percentile
+  - snips_bootstrap_percentile
+  - dm_bootstrap_refit_percentile
+  - dr_bootstrap_refit_percentile
+  - dr_bootstrap_refit_basic
+
+scenarios:
+  - name: good_overlap_correct_model
+    description: Good overlap with well-specified linear model.
+    environment:
+      n_actions: 3
+      context_dim: 2
+      reward_type: binary
+      reward_scale: 1.0
+      bias_scale: 0.5
+    logging_policy:
+      kind: softmax
+      scores: reward
+      inverse_temperature: 0.5
+    evaluation_policy:
+      kind: softmax
+      scores: reward
+      inverse_temperature: 1.0
+    reward_model:
+      specification: correct
+      standardize: true
+      alpha: 1.0
+    diagnostics:
+      min_ess_fraction: 0.1
+      max_weight_share: 0.1
+      mean_weight_z: 4.0
+    n_samples:
+      - 100

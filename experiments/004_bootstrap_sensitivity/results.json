@@ -1,0 +1,209 @@
+{
+  "metadata": {
+    "seed": 20261104,
+    "b_values": [
+      50,
+      200,
+      1000
+    ],
+    "n_samples": 500,
+    "n_folds": 3,
+    "nominal_coverage": 0.95
+  },
+  "scenarios": {
+    "good_overlap": {
+      "true_value": 0.5564582866220272,
+      "true_mcse": 0.0002054019012986966,
+      "ips_snips_m500": {
+        "ips_b50": {
+          "coverage": 0.92,
+          "mcse": 0.012132600710482479,
+          "mean_width": 0.08783383492406284,
+          "mean_lower": 0.5125862192294437,
+          "mean_upper": 0.6004200541535065
+        },
+        "snips_b50": {
+          "coverage": 0.928,
+          "mcse": 0.0115599307956406,
+          "mean_width": 0.08170449688498653,
+          "mean_lower": 0.5152483355084351,
+          "mean_upper": 0.5969528323934217
+        },
+        "ips_b200": {
+          "coverage": 0.948,
+          "mcse": 0.009929350431926557,
+          "mean_width": 0.09336235784961548,
+          "mean_lower": 0.5090889720466344,
+          "mean_upper": 0.6024513298962498
+        },
+        "snips_b200": {
+          "coverage": 0.942,
+          "mcse": 0.010453324829928518,
+          "mean_width": 0.0871755433039462,
+          "mean_lower": 0.5118509669011887,
+          "mean_upper": 0.5990265102051349
+        },
+        "ips_b1000": {
+          "coverage": 0.956,
+          "mcse": 0.009172131704244116,
+          "mean_width": 0.09509403475305306,
+          "mean_lower": 0.5084082482652476,
+          "mean_upper": 0.6035022830183007
+        },
+        "snips_b1000": {
+          "coverage": 0.954,
+          "mcse": 0.009368457717255283,
+          "mean_width": 0.08880873923490647,
+          "mean_lower": 0.5112030170909385,
+          "mean_upper": 0.600011756325845
+        }
+      },
+      "dr_refit_endpoint_study": {
+        "b50": {
+          "coverage": 1.0,
+          "mcse": 0.0,
+          "mean_width": 0.082109443477802,
+          "mean_lower": 0.5158420490202611,
+          "mean_upper": 0.5979514924980631,
+          "mean_runtime_seconds": 0.5158656299579889
+        },
+        "b200": {
+          "coverage": 1.0,
+          "mcse": 0.0,
+          "mean_width": 0.08944927205733,
+          "mean_lower": 0.5130066500747944,
+          "mean_upper": 0.6024559221321243,
+          "mean_runtime_seconds": 2.065221260022372
+        },
+        "b1000": {
+          "coverage": 1.0,
+          "mcse": 0.0,
+          "mean_width": 0.08821583414955796,
+          "mean_lower": 0.5124631051463051,
+          "mean_upper": 0.6006789392958629,
+          "mean_runtime_seconds": 10.360314919962548
+        },
+        "endpoint_discrepancy": {
+          "mean_abs_diff_lower_50_vs_1000": 0.0056927330095569665,
+          "mean_abs_diff_upper_50_vs_1000": 0.0050601925082350615,
+          "mean_abs_diff_lower_200_vs_1000": 0.003412781864245784,
+          "mean_abs_diff_upper_200_vs_1000": 0.003253175749871662
+        }
+      },
+      "dr_refit_m50": {
+        "b50": {
+          "coverage": 0.88,
+          "mcse": 0.04595650117230423,
+          "mean_width": 0.08320302548972064
+        },
+        "b200": {
+          "coverage": 0.9,
+          "mcse": 0.04242640687119285,
+          "mean_width": 0.08718722672093496
+        }
+      },
+      "ips_wald": {
+        "coverage": 0.956,
+        "mcse": 0.009172131704244116,
+        "mean_width": 0.09566345776878649
+      }
+    },
+    "poor_overlap": {
+      "true_value": 0.5775557799182517,
+      "true_mcse": 0.00010573911624292696,
+      "ips_snips_m500": {
+        "ips_b50": {
+          "coverage": 0.914,
+          "mcse": 0.01253826144248077,
+          "mean_width": 0.1642569736319349,
+          "mean_lower": 0.4992439703532136,
+          "mean_upper": 0.6635009439851485
+        },
+        "snips_b50": {
+          "coverage": 0.918,
+          "mcse": 0.012269963325128561,
+          "mean_width": 0.11137087390351419,
+          "mean_lower": 0.521699872799551,
+          "mean_upper": 0.6330707467030652
+        },
+        "ips_b200": {
+          "coverage": 0.928,
+          "mcse": 0.0115599307956406,
+          "mean_width": 0.1745793964412562,
+          "mean_lower": 0.4954597120181549,
+          "mean_upper": 0.670039108459411
+        },
+        "snips_b200": {
+          "coverage": 0.942,
+          "mcse": 0.010453324829928518,
+          "mean_width": 0.11807799626537972,
+          "mean_lower": 0.5179693355012455,
+          "mean_upper": 0.6360473317666253
+        },
+        "ips_b1000": {
+          "coverage": 0.934,
+          "mcse": 0.01110351295761841,
+          "mean_width": 0.17764070045215444,
+          "mean_lower": 0.49352701784111114,
+          "mean_upper": 0.6711677182932656
+        },
+        "snips_b1000": {
+          "coverage": 0.946,
+          "mcse": 0.010107818755794947,
+          "mean_width": 0.12015481896029528,
+          "mean_lower": 0.5170257772667742,
+          "mean_upper": 0.6371805962270694
+        }
+      },
+      "dr_refit_endpoint_study": {
+        "b50": {
+          "coverage": 1.0,
+          "mcse": 0.0,
+          "mean_width": 0.1108133717117874,
+          "mean_lower": 0.529935320397175,
+          "mean_upper": 0.6407486921089622,
+          "mean_runtime_seconds": 0.792753090034239
+        },
+        "b200": {
+          "coverage": 1.0,
+          "mcse": 0.0,
+          "mean_width": 0.11603932600235374,
+          "mean_lower": 0.5287205536977588,
+          "mean_upper": 0.6447598797001126,
+          "mean_runtime_seconds": 3.0490333300549537
+        },
+        "b1000": {
+          "coverage": 1.0,
+          "mcse": 0.0,
+          "mean_width": 0.11880929034461726,
+          "mean_lower": 0.5279815843774519,
+          "mean_upper": 0.6467908747220692,
+          "mean_runtime_seconds": 15.766562100010924
+        },
+        "endpoint_discrepancy": {
+          "mean_abs_diff_lower_50_vs_1000": 0.011206057553331188,
+          "mean_abs_diff_upper_50_vs_1000": 0.00819032053608223,
+          "mean_abs_diff_lower_200_vs_1000": 0.004358153575296281,
+          "mean_abs_diff_upper_200_vs_1000": 0.005313622355426451
+        }
+      },
+      "dr_refit_m50": {
+        "b50": {
+          "coverage": 0.92,
+          "mcse": 0.038366652186501746,
+          "mean_width": 0.10984964514940466
+        },
+        "b200": {
+          "coverage": 0.96,
+          "mcse": 0.02771281292110205,
+          "mean_width": 0.11936435949646114
+        }
+      },
+      "ips_wald": {
+        "coverage": 0.93,
+        "mcse": 0.011410521460476728,
+        "mean_width": 0.17873948318378904
+      }
+    }
+  }
+}

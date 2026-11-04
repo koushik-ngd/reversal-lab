@@ -6,6 +6,7 @@ from reversallab.contracts.validation import (
     FloatArray,
     IntArray,
     validate_action_distribution,
+    validate_predicted_rewards,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "IntArray",
     "LoggedBanditData",
     "validate_action_distribution",
+    "validate_predicted_rewards",
 ]

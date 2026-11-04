@@ -1,14 +1,14 @@
-"""Point estimates from Open Bandit Pipeline's IPW and SNIPW classes.
+"""Point estimates from Open Bandit Pipeline's IPW, SNIPW, DM, and DR classes.
 
 OBP 0.5.5 declares ``python >=3.7.1,<3.10`` and imports PyTorch, pandas, SciPy,
 and scikit-learn from its package ``__init__``. This process is Python 3.12.
 Importing that stack also failed here: Windows Application Control refused to
 load SciPy's compiled extension. The point-estimate methods do not call those
-libraries. This module therefore loads ``InverseProbabilityWeighting`` and
-``SelfNormalizedInverseProbabilityWeighting`` from a local checkout of
-``st-tech/zr-obp`` in a subprocess, after substituting empty modules for the
-unused imports. The arithmetic and ``check_ope_inputs`` are the upstream
-functions. The checkout is not downloaded by this module.
+libraries. This module therefore loads ``InverseProbabilityWeighting``,
+``SelfNormalizedInverseProbabilityWeighting``, ``DirectMethod``, and ``DoublyRobust``
+from a local checkout of ``st-tech/zr-obp`` in a subprocess, after substituting empty
+modules for the unused imports. The arithmetic and ``check_ope_inputs`` are the
+upstream functions. The checkout is not downloaded by this module.
 """
 
 from __future__ import annotations
@@ -86,6 +86,8 @@ _BRIDGE = textwrap.dedent(
     payloads = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
     ipw = estimators.InverseProbabilityWeighting()
     snipw = estimators.SelfNormalizedInverseProbabilityWeighting()
+    dm = estimators.DirectMethod()
+    dr = estimators.DoublyRobust()
     source = Path(estimators.__file__)
     results = []
     for payload in payloads:
@@ -94,7 +96,7 @@ _BRIDGE = textwrap.dedent(
         pscore = np.asarray(payload["pscore"], dtype=np.float64)
         action_dist = np.asarray(payload["action_dist"], dtype=np.float64)[:, :, None]
         position = np.zeros(reward.shape[0], dtype=np.int64)
-        results.append({
+        entry = {
             "ipw": float(ipw.estimate_policy_value(
                 reward=reward, action=action, action_dist=action_dist,
                 pscore=pscore, position=position,
@@ -103,7 +105,17 @@ _BRIDGE = textwrap.dedent(
                 reward=reward, action=action, action_dist=action_dist,
                 pscore=pscore, position=position,
             )),
-        })
+        }
+        if "q_hat" in payload and payload["q_hat"] is not None:
+            q_hat = np.asarray(payload["q_hat"], dtype=np.float64)[:, :, None]
+            entry["dm"] = float(dm.estimate_policy_value(
+                action_dist=action_dist, estimated_rewards_by_reg_model=q_hat, position=position,
+            ))
+            entry["dr"] = float(dr.estimate_policy_value(
+                reward=reward, action=action, action_dist=action_dist,
+                pscore=pscore, estimated_rewards_by_reg_model=q_hat, position=position,
+            ))
+        results.append(entry)
     Path(sys.argv[3]).write_text(
         json.dumps({
             "lambda": float(ipw.lambda_),
@@ -117,7 +129,7 @@ _BRIDGE = textwrap.dedent(
 
 
 def obp_estimators_path(obp_root: Path) -> Path:
-    """Return the IPW/SNIPW source file inside a zr-obp checkout."""
+    """Return the estimators source file inside a zr-obp checkout."""
     path = obp_root / "obp" / "ope" / "estimators.py"
     if not path.is_file():
         raise ConfigurationError(
@@ -146,22 +158,29 @@ def obp_point_estimates(
     action: npt.NDArray[np.int64],
     pscore: npt.NDArray[np.float64],
     action_dist: npt.NDArray[np.float64],
+    q_hat: npt.NDArray[np.float64] | None = None,
 ) -> dict[str, Any]:
-    """Run OBP's IPW and SNIPW on one set of arrays. See :func:`obp_point_estimates_many`."""
+    """Run OBP's estimators on one set of arrays. See :func:`obp_point_estimates_many`."""
     batch = obp_point_estimates_many(
         obp_root,
         reward=[reward],
         action=[action],
         pscore=[pscore],
         action_dist=[action_dist],
+        q_hat=[q_hat] if q_hat is not None else None,
     )
     estimate = batch["estimates"][0]
-    return {
+    out: dict[str, Any] = {
         "ipw": estimate["ipw"],
         "snipw": estimate["snipw"],
         "lambda": batch["lambda"],
         "estimators_sha256": batch["estimators_sha256"],
     }
+    if "dm" in estimate:
+        out["dm"] = estimate["dm"]
+    if "dr" in estimate:
+        out["dr"] = estimate["dr"]
+    return out
 
 
 def obp_point_estimates_many(
@@ -171,8 +190,9 @@ def obp_point_estimates_many(
     action: list[npt.NDArray[np.int64]],
     pscore: list[npt.NDArray[np.float64]],
     action_dist: list[npt.NDArray[np.float64]],
+    q_hat: list[npt.NDArray[np.float64] | None] | None = None,
 ) -> dict[str, Any]:
-    """Run OBP's IPW and SNIPW on several array sets in one process.
+    """Run OBP's estimators on several array sets in one process.
 
     Each ``action_dist`` has shape ``(N, K)``. OBP stores evaluation probabilities
     as ``(N, K, len_list)``. Each of our rows is already one position, so
@@ -181,18 +201,24 @@ def obp_point_estimates_many(
     """
     if not reward or len({len(reward), len(action), len(pscore), len(action_dist)}) != 1:
         raise ConfigurationError("OBP comparison cases must be a non-empty aligned list.")
+    if q_hat is not None and len(q_hat) != len(reward):
+        raise ConfigurationError("`q_hat` list must match length of `reward` list.")
+
     source = obp_estimators_path(obp_root)
-    payload = [
-        {
+    payload = []
+    for idx, (one_reward, one_action, one_pscore, one_dist) in enumerate(
+        zip(reward, action, pscore, action_dist, strict=True)
+    ):
+        case_dict: dict[str, Any] = {
             "reward": np.asarray(one_reward, dtype=np.float64).tolist(),
             "action": np.asarray(one_action, dtype=np.int64).tolist(),
             "pscore": np.asarray(one_pscore, dtype=np.float64).tolist(),
             "action_dist": np.asarray(one_dist, dtype=np.float64).tolist(),
         }
-        for one_reward, one_action, one_pscore, one_dist in zip(
-            reward, action, pscore, action_dist, strict=True
-        )
-    ]
+        if q_hat is not None and q_hat[idx] is not None:
+            case_dict["q_hat"] = np.asarray(q_hat[idx], dtype=np.float64).tolist()
+        payload.append(case_dict)
+
     from tempfile import TemporaryDirectory
 
     with TemporaryDirectory(prefix="reversallab-obp-") as tmp:
@@ -209,7 +235,7 @@ def obp_point_estimates_many(
         if completed.returncode != 0 or not response.is_file():
             detail = (completed.stderr or completed.stdout or "no output").strip()
             raise ConfigurationError(
-                f"Open Bandit Pipeline IPW/SNIPW failed to run from {source}.\n{detail}"
+                f"Open Bandit Pipeline estimators failed to run from {source}.\n{detail}"
             )
         parsed: dict[str, Any] = json.loads(response.read_text(encoding="utf-8"))
     parsed["estimators_sha256"] = _file_sha256(source)

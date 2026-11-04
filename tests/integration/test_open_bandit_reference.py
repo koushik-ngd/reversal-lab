@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from reversallab.data.open_bandit import load_open_bandit
-from reversallab.evaluation.estimators import ips, snips
+from reversallab.evaluation.estimators import dm, dr, ips, snips
 from reversallab.evaluation.obp_reference import obp_point_estimates
 from reversallab.experiments.config import load_parity_config
 from reversallab.experiments.open_bandit_parity import run_open_bandit_parity
@@ -96,7 +96,7 @@ def test_loader_preserves_file_order(tmp_path: Path) -> None:
     assert int(loaded.position[0]) == int(first[3])
 
 
-def test_hand_arrays_match_obp_ipw_and_snipw() -> None:
+def test_hand_arrays_match_obp_ipw_snipw_dm_and_dr() -> None:
     _require_obp()
     from reversallab.contracts.logged_data import LoggedBanditData
 
@@ -104,6 +104,7 @@ def test_hand_arrays_match_obp_ipw_and_snipw() -> None:
     reward = np.array([1.0, 0.0, 1.0, 1.0])
     logging = np.array([[0.5, 0.5], [0.8, 0.2], [0.25, 0.75], [0.5, 0.5]])
     evaluation = np.array([[1.0, 0.0], [0.5, 0.5], [0.5, 0.5], [0.0, 1.0]])
+    q_hat = np.array([[0.8, 0.2], [0.6, 0.4], [0.7, 0.3], [0.1, 0.9]])
     data = LoggedBanditData(
         context=np.zeros((4, 1)),
         action=action,
@@ -114,18 +115,27 @@ def test_hand_arrays_match_obp_ipw_and_snipw() -> None:
     )
     ours_ips = ips(data, evaluation)
     ours_snips = snips(data, evaluation)
+    ours_dm = dm(data, evaluation, q_hat)
+    ours_dr = dr(data, evaluation, q_hat)
+
     assert ours_ips.value == pytest.approx(1.5)
     assert ours_snips.value == pytest.approx(6.0 / 8.5)
+    assert ours_dm.value == pytest.approx(0.675)
+    assert ours_dr.value == pytest.approx(0.725)
+
     reference = obp_point_estimates(
         OBP_ROOT,
         reward=data.reward,
         action=data.action,
         pscore=data.logging_propensity,
         action_dist=evaluation,
+        q_hat=q_hat,
     )
     assert reference["lambda"] == float("inf")
     assert reference["ipw"] == pytest.approx(ours_ips.value, rel=1e-12, abs=1e-12)
     assert reference["snipw"] == pytest.approx(ours_snips.value, rel=1e-12, abs=1e-12)
+    assert reference["dm"] == pytest.approx(ours_dm.value, rel=1e-12, abs=1e-12)
+    assert reference["dr"] == pytest.approx(ours_dr.value, rel=1e-12, abs=1e-12)
 
 
 def test_small_sample_matches_obp_within_documented_tolerance() -> None:

@@ -1,0 +1,132 @@
+name: "003_advanced_estimators"
+description: >
+  Validation of Direct Method (DM) and Doubly Robust (DR) against IPS and SNIPS
+  under K-fold reward-model cross-fitting across good/poor overlap, correct/misspecified
+  reward models, and binary vs gaussian rewards.
+seed: 20261030
+n_replications: 100
+confidence_level: 0.95
+reference_n_contexts: 500000
+estimators: [ips, snips, dm, dr]
+n_folds: 5
+include_logging_action_dist: true
+
+scenarios:
+  - name: good_overlap_correct_model
+    description: "Uniform logging with informed softmax candidate; correctly specified reward model."
+    n_samples: [500, 2000]
+    environment:
+      n_actions: 5
+      context_dim: 4
+      reward_type: binary
+      reward_scale: 1.0
+      bias_scale: 0.2
+    logging_policy:
+      kind: uniform
+    evaluation_policy:
+      kind: softmax
+      inverse_temperature: 1.5
+      scores: reward
+    reward_model:
+      specification: correct
+      alpha: 1.0
+
+  - name: good_overlap_misspecified_model
+    description: "Uniform logging with informed candidate; misspecified reward model. Tests double robustness."
+    n_samples: [500, 2000]
+    environment:
+      n_actions: 5
+      context_dim: 4
+      reward_type: binary
+      reward_scale: 1.0
+      bias_scale: 0.2
+    logging_policy:
+      kind: uniform
+    evaluation_policy:
+      kind: softmax
+      inverse_temperature: 1.5
+      scores: reward
+    reward_model:
+      specification: misspecified
+
+  - name: poor_overlap_correct_model
+    description: "Confident random logger against informed candidate; correctly specified reward model."
+    n_samples: [500, 2000]
+    environment:
+      n_actions: 5
+      context_dim: 4
+      reward_type: binary
+      reward_scale: 1.0
+      bias_scale: 0.2
+    logging_policy:
+      kind: softmax
+      inverse_temperature: 2.0
+      scores: random
+      score_seed: 314
+    evaluation_policy:
+      kind: softmax
+      inverse_temperature: 2.0
+      scores: reward
+    reward_model:
+      specification: correct
+      alpha: 1.0
+
+  - name: poor_overlap_misspecified_model
+    description: "Confident random logger against informed candidate; misspecified reward model."
+    n_samples: [500, 2000]
+    environment:
+      n_actions: 5
+      context_dim: 4
+      reward_type: binary
+      reward_scale: 1.0
+      bias_scale: 0.2
+    logging_policy:
+      kind: softmax
+      inverse_temperature: 2.0
+      scores: random
+      score_seed: 314
+    evaluation_policy:
+      kind: softmax
+      inverse_temperature: 2.0
+      scores: reward
+    reward_model:
+      specification: misspecified
+
+  - name: continuous_reward_good_overlap
+    description: "Gaussian continuous rewards with uniform logging; correctly specified Ridge reward model."
+    n_samples: [500, 2000]
+    environment:
+      n_actions: 5
+      context_dim: 4
+      reward_type: gaussian
+      reward_scale: 1.0
+      bias_scale: 0.2
+      noise_std: 1.0
+    logging_policy:
+      kind: uniform
+    evaluation_policy:
+      kind: softmax
+      inverse_temperature: 1.5
+      scores: reward
+    reward_model:
+      specification: correct
+      alpha: 1.0
+
+  - name: continuous_reward_misspecified
+    description: "Gaussian continuous rewards with uniform logging; misspecified reward model."
+    n_samples: [500, 2000]
+    environment:
+      n_actions: 5
+      context_dim: 4
+      reward_type: gaussian
+      reward_scale: 1.0
+      bias_scale: 0.2
+      noise_std: 1.0
+    logging_policy:
+      kind: uniform
+    evaluation_policy:
+      kind: softmax
+      inverse_temperature: 1.5
+      scores: reward
+    reward_model:
+      specification: misspecified

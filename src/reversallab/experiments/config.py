@@ -11,7 +11,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from reversallab.data.synthetic import RewardType, SyntheticBanditEnvironment
-from reversallab.evaluation.estimators import ESTIMATORS
+from reversallab.evaluation.estimators import ALL_ESTIMATORS, ESTIMATORS
 from reversallab.exceptions import ConfigurationError
 from reversallab.policies import (
     EpsilonGreedyLinearPolicy,
@@ -117,6 +117,107 @@ class EstimatorValidationConfig(_Strict):
         return self
 
 
+class RewardModelSpec(_Strict):
+    specification: Literal["correct", "misspecified"] = "correct"
+    alpha: float = Field(default=1.0, gt=0.0)
+    standardize: bool = False
+
+
+class AdvancedScenarioConfig(_Strict):
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_\-]+$")
+    description: str = ""
+    n_samples: list[int] = Field(min_length=1)
+    logging_policy: PolicySpec
+    evaluation_policy: PolicySpec
+    environment: EnvironmentConfig
+    reward_model: RewardModelSpec = RewardModelSpec()
+    diagnostics: DiagnosticThresholdsConfig = DiagnosticThresholdsConfig()
+
+    @model_validator(mode="after")
+    def _positive_sizes(self) -> AdvancedScenarioConfig:
+        if any(n < 2 for n in self.n_samples):
+            raise ValueError("every entry of `n_samples` must be >= 2.")
+        if len(set(self.n_samples)) != len(self.n_samples):
+            raise ValueError("`n_samples` entries must be unique.")
+        return self
+
+
+class AdvancedEstimatorValidationConfig(_Strict):
+    """Configuration for experiment 003: advanced estimator validation (IPS, SNIPS, DM, DR)."""
+
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_\-]+$")
+    description: str = ""
+    seed: int = Field(ge=0)
+    n_replications: int = Field(ge=2)
+    confidence_level: float = Field(default=0.95, gt=0.0, lt=1.0)
+    reference_n_contexts: int = Field(default=1_000_000, ge=1000)
+    estimators: list[str] = Field(default_factory=lambda: ["ips", "snips", "dm", "dr"])
+    n_folds: int = Field(default=5, ge=2)
+    include_logging_action_dist: bool = True
+    scenarios: list[AdvancedScenarioConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> AdvancedEstimatorValidationConfig:
+        unknown = sorted(set(self.estimators) - ALL_ESTIMATORS)
+        if unknown:
+            avail = sorted(ALL_ESTIMATORS)
+            raise ValueError(f"unknown estimator(s) {unknown}; available: {avail}.")
+        names = [s.name for s in self.scenarios]
+        if len(set(names)) != len(names):
+            raise ValueError("scenario names must be unique.")
+        return self
+
+
+UNCERTAINTY_METHODS = {
+    "ips_wald",
+    "snips_wald",
+    "dm_naive_wald",
+    "dr_influence_wald",
+    "ips_bootstrap_percentile",
+    "snips_bootstrap_percentile",
+    "dm_bootstrap_refit_percentile",
+    "dr_bootstrap_refit_percentile",
+    "dr_bootstrap_refit_basic",
+}
+
+
+class UncertaintyCalibrationConfig(_Strict):
+    """Configuration for experiment 004: uncertainty estimation and CI calibration."""
+
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_\-]+$")
+    description: str = ""
+    seed: int = Field(ge=0)
+    n_replications: int = Field(ge=2)
+    n_bootstraps: int = Field(default=100, ge=5)
+    n_folds: int = Field(default=3, ge=2)
+    confidence_level: float = Field(default=0.95, gt=0.0, lt=1.0)
+    reference_n_contexts: int = Field(default=500_000, ge=1000)
+    uncertainty_methods: list[str] = Field(
+        default_factory=lambda: [
+            "ips_wald",
+            "snips_wald",
+            "dm_naive_wald",
+            "dr_influence_wald",
+            "ips_bootstrap_percentile",
+            "snips_bootstrap_percentile",
+            "dm_bootstrap_refit_percentile",
+            "dr_bootstrap_refit_percentile",
+        ]
+    )
+    scenarios: list[AdvancedScenarioConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> UncertaintyCalibrationConfig:
+        unknown = sorted(set(self.uncertainty_methods) - UNCERTAINTY_METHODS)
+        if unknown:
+            avail = sorted(UNCERTAINTY_METHODS)
+            raise ValueError(f"unknown uncertainty method(s) {unknown}; available: {avail}.")
+        names = [s.name for s in self.scenarios]
+        if len(set(names)) != len(names):
+            raise ValueError("scenario names must be unique.")
+        return self
+
+
 class UniformEvaluationSpec(_Strict):
     kind: Literal["uniform"]
 
@@ -178,6 +279,23 @@ def load_config(path: str | Path) -> EstimatorValidationConfig:
         raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
 
 
+def load_advanced_config(path: str | Path) -> AdvancedEstimatorValidationConfig:
+    """Load experiment 003 advanced estimator validation config."""
+    p = Path(path)
+    if not p.is_file():
+        raise ConfigurationError(f"Config file not found: {p}")
+    try:
+        raw: Any = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(f"Could not parse YAML in {p}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
+    try:
+        return AdvancedEstimatorValidationConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
+
+
 def load_parity_config(path: str | Path) -> OpenBanditParityConfig:
     """Load experiment 002. This is a different schema from :func:`load_config`."""
     p = Path(path)
@@ -191,6 +309,23 @@ def load_parity_config(path: str | Path) -> OpenBanditParityConfig:
         raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
     try:
         return OpenBanditParityConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
+
+
+def load_uncertainty_config(path: str | Path) -> UncertaintyCalibrationConfig:
+    """Load experiment 004 uncertainty calibration config."""
+    p = Path(path)
+    if not p.is_file():
+        raise ConfigurationError(f"Config file not found: {p}")
+    try:
+        raw: Any = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(f"Could not parse YAML in {p}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
+    try:
+        return UncertaintyCalibrationConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
 

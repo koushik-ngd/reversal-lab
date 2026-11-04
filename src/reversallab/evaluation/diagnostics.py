@@ -1,4 +1,4 @@
-r"""Diagnostics for importance-weighted off-policy evaluation.
+r"""Diagnostics for importance-weighted off-policy evaluation and uncertainty reliability.
 
 Diagnostics *report* problems; they never raise for statistical concerns. Each
 warning carries a stable machine-readable ``code`` so experiments can count how
@@ -11,6 +11,8 @@ Key quantities (weights :math:`w_i`, :math:`N` observations):
 * Mean weight: under full support :math:`E_{\pi_0}[w] = 1`; a mean significantly
   below 1 indicates evaluation mass on actions the logger does not take, and a
   significant deviation in either direction indicates mis-specified propensities.
+* Uncertainty reliability: degenerate intervals (zero/non-finite width), excessive
+  interval width, non-finite standard errors, and invalid asymptotic normality conditions.
 """
 
 from __future__ import annotations
@@ -41,6 +43,12 @@ class DiagnosticThresholds:
     max_weight_share: float = 0.05
     mean_weight_z: float = 4.0
     """Warn when ``|mean(w) - 1| / se(mean(w))`` exceeds this value."""
+    max_interval_width: float = 1.0
+    """Warn when a confidence interval has width exceeding this value."""
+    min_ess_fraction_for_inference: float = 0.05
+    """Warn when ESS fraction is so low that asymptotic normality is suspect."""
+    max_top_1pct_weight_share: float = 0.25
+    """Warn when top 1% of observations carry more than this fraction of total weight."""
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,7 @@ class WeightDiagnostics:
     effective_sample_size: float
     effective_sample_size_fraction: float
     max_weight_share: float
+    top_1pct_weight_share: float
     zero_weight_fraction: float
     mean_weight_standard_error: float
 
@@ -100,6 +109,12 @@ def weight_diagnostics(weights: FloatArray) -> WeightDiagnostics:
     q50, q90, q99 = (float(q) for q in np.quantile(w, [0.5, 0.9, 0.99]))
     std = float(w.std(ddof=1)) if n > 1 else math.nan
     w_max = float(np.max(w))
+
+    # Calculate top 1% mass share
+    n_top = max(1, math.ceil(0.01 * n))
+    top_sum = float(np.sum(np.partition(w, n - n_top)[n - n_top :]))
+    top_share = top_sum / total if total > 0 else math.nan
+
     return WeightDiagnostics(
         n_samples=n,
         mean=float(w.mean()),
@@ -112,6 +127,7 @@ def weight_diagnostics(weights: FloatArray) -> WeightDiagnostics:
         effective_sample_size=ess,
         effective_sample_size_fraction=ess / n,
         max_weight_share=w_max / total if total > 0 else math.nan,
+        top_1pct_weight_share=top_share,
         zero_weight_fraction=float(np.mean(w == 0.0)),
         mean_weight_standard_error=std / math.sqrt(n) if n > 1 else math.nan,
     )
@@ -122,7 +138,7 @@ def diagnose(
     evaluation_action_dist: npt.ArrayLike,
     thresholds: DiagnosticThresholds | None = None,
 ) -> DiagnosticReport:
-    """Compute weight and support diagnostics for one (data, evaluation policy) pair."""
+    """Compute weight, support, and reliability diagnostics for one (data, policy) pair."""
     t = thresholds or DiagnosticThresholds()
     eval_dist = validate_evaluation_action_dist(data, evaluation_action_dist)
     w = importance_weights(data, eval_dist, require_support=False)
@@ -173,11 +189,31 @@ def diagnose(
                 f"of N) is below {t.min_ess_fraction:.0%}; estimates rely on few observations.",
             )
         )
+    if wd.effective_sample_size_fraction < t.min_ess_fraction_for_inference:
+        warnings.append(
+            DiagnosticWarning(
+                "invalid_inference_assumptions",
+                f"ESS fraction ({wd.effective_sample_size_fraction:.2%}) is critically low "
+                f"(< {t.min_ess_fraction_for_inference:.0%}); asymptotic normality and Wald "
+                "intervals are unreliable.",
+            )
+        )
     if not math.isnan(wd.max_weight_share) and wd.max_weight_share > t.max_weight_share:
         warnings.append(
             DiagnosticWarning(
                 "dominant_weight",
                 f"A single observation carries {wd.max_weight_share:.2%} of the total weight.",
+            )
+        )
+    if (
+        not math.isnan(wd.top_1pct_weight_share)
+        and wd.top_1pct_weight_share > t.max_top_1pct_weight_share
+    ):
+        warnings.append(
+            DiagnosticWarning(
+                "concentrated_weights",
+                f"Top 1% of observations carry {wd.top_1pct_weight_share:.2%} of the total weight "
+                f"(exceeds {t.max_top_1pct_weight_share:.0%}).",
             )
         )
     if wd.zero_weight_fraction == 1.0:
@@ -198,6 +234,70 @@ def diagnose(
             )
         )
     return DiagnosticReport(weights=wd, support=sd, warnings=tuple(warnings))
+
+
+def diagnose_interval(
+    ci: tuple[float, float],
+    standard_error: float,
+    *,
+    thresholds: DiagnosticThresholds | None = None,
+) -> list[DiagnosticWarning]:
+    """Diagnose potential failure modes in an estimated confidence interval.
+
+    Parameters
+    ----------
+    ci:
+        Confidence interval tuple ``(lower, upper)``.
+    standard_error:
+        Reported standard error.
+    thresholds:
+        Diagnostic thresholds configuration.
+
+    Returns
+    -------
+    list[DiagnosticWarning]:
+        List of identified interval reliability warnings.
+    """
+    t = thresholds or DiagnosticThresholds()
+    warnings: list[DiagnosticWarning] = []
+    lower, upper = ci
+
+    # Check non-finite uncertainty
+    if not (math.isfinite(standard_error) and standard_error >= 0.0):
+        warnings.append(
+            DiagnosticWarning(
+                "nonfinite_uncertainty",
+                f"Standard error is non-finite or negative: {standard_error}.",
+            )
+        )
+
+    # Check degenerate interval
+    if not (math.isfinite(lower) and math.isfinite(upper)):
+        warnings.append(
+            DiagnosticWarning(
+                "degenerate_interval",
+                f"Confidence interval bounds are non-finite: [{lower}, {upper}].",
+            )
+        )
+    elif lower >= upper:
+        warnings.append(
+            DiagnosticWarning(
+                "degenerate_interval",
+                f"Confidence interval is degenerate or inverted: [{lower}, {upper}].",
+            )
+        )
+    else:
+        width = upper - lower
+        if width > t.max_interval_width:
+            warnings.append(
+                DiagnosticWarning(
+                    "excessive_interval_width",
+                    f"Confidence interval width ({width:.4f}) exceeds threshold "
+                    f"{t.max_interval_width:.4f}; estimate provides weak operational constraint.",
+                )
+            )
+
+    return warnings
 
 
 def estimator_disagreement(estimates: list[PolicyValueEstimate]) -> float:

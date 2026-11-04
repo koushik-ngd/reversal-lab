@@ -25,6 +25,22 @@ scenarios:
     evaluation_policy: {kind: epsilon_greedy, epsilon: 0.0, scores: reward}
 """
 
+ADVANCED_CONFIG = """
+name: cli_advanced_smoke
+seed: 7
+n_replications: 5
+reference_n_contexts: 5000
+estimators: [ips, snips, dm, dr]
+n_folds: 2
+scenarios:
+  - name: smoke_scenario
+    n_samples: [30]
+    environment: {n_actions: 3, context_dim: 2, reward_type: binary}
+    logging_policy: {kind: uniform}
+    evaluation_policy: {kind: softmax, inverse_temperature: 1.0, scores: reward}
+    reward_model: {specification: correct}
+"""
+
 
 def _run(tmp_path: Path, config_text: str, out: str) -> dict[str, object]:
     cfg = tmp_path / "config.yaml"
@@ -106,3 +122,85 @@ def test_invalid_config_reports_error(tmp_path: Path, capsys: pytest.CaptureFixt
 def test_missing_run_dir_reports_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["report", "--run-dir", str(tmp_path / "nope")]) == 2
     assert "No run.json" in capsys.readouterr().err
+
+
+def test_validate_advanced_estimators_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cfg = tmp_path / "adv_config.yaml"
+    cfg.write_text(ADVANCED_CONFIG, encoding="utf-8")
+    code = main(
+        [
+            "--log-level",
+            "WARNING",
+            "validate-advanced-estimators",
+            "--config",
+            str(cfg),
+            "--output-dir",
+            str(tmp_path / "adv_runs"),
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "smoke_scenario" in out
+    assert "dm" in out
+    assert "dr" in out
+
+    (run_dir,) = (tmp_path / "adv_runs").iterdir()
+    run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    cell = run["results"]["scenarios"][0]["cells"][0]
+    # Verify DM and DR are present and have None for ci_coverage
+    assert cell["estimators"]["dm"]["n_successful"] == 5
+    assert cell["estimators"]["dr"]["n_successful"] == 5
+    assert cell["estimators"]["dm"]["ci_coverage"] is None
+    assert cell["estimators"]["dr"]["ci_coverage"] is None
+
+
+UNCERTAINTY_CONFIG = """
+name: cli_uncertainty_smoke
+seed: 42
+n_replications: 2
+n_bootstraps: 5
+n_folds: 2
+confidence_level: 0.95
+reference_n_contexts: 2000
+uncertainty_methods:
+  - ips_wald
+  - dr_influence_wald
+  - dm_bootstrap_refit_percentile
+scenarios:
+  - name: smoke_uncertainty
+    n_samples: [40]
+    environment: {n_actions: 3, context_dim: 2, reward_type: binary}
+    logging_policy: {kind: uniform}
+    evaluation_policy: {kind: softmax, inverse_temperature: 1.0, scores: reward}
+    reward_model: {specification: correct}
+"""
+
+
+def test_calibrate_uncertainty_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    cfg = tmp_path / "unc_config.yaml"
+    cfg.write_text(UNCERTAINTY_CONFIG, encoding="utf-8")
+    code = main(
+        [
+            "--log-level",
+            "WARNING",
+            "calibrate-uncertainty",
+            "--config",
+            str(cfg),
+            "--output-dir",
+            str(tmp_path / "unc_runs"),
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "smoke_uncertainty" in out
+    assert "dr_influence_wald" in out
+
+    (run_dir,) = (tmp_path / "unc_runs").iterdir()
+    run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    cell = run["results"]["scenarios"][0]["cells"][0]
+    assert cell["methods"]["dr_influence_wald"]["n_successful"] == 2
+    assert 0.0 <= cell["methods"]["dr_influence_wald"]["empirical_coverage"] <= 1.0
+
+

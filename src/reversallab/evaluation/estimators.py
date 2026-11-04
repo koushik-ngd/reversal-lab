@@ -1,13 +1,18 @@
-r"""Importance-sampling off-policy value estimators.
+r"""Off-policy value estimators: importance sampling, direct method, and doubly robust.
 
 For logged data :math:`\{(x_i, a_i, r_i, p_i)\}_{i=1}^N` drawn i.i.d. from the logging
-policy :math:`\pi_0` and weights :math:`w_i = \pi_e(a_i|x_i) / p_i`:
+policy :math:`\pi_0`, candidate policy :math:`\pi_e`, weights :math:`w_i = \pi_e(a_i|x_i) / p_i`,
+and predicted reward matrix :math:`\hat{q}(x, a)`:
 
 * IPS:   :math:`\hat V = \frac{1}{N}\sum_i w_i r_i` (unbiased under support).
 * SNIPS: :math:`\hat V = \sum_i w_i r_i / \sum_i w_i` (biased, consistent).
+* DM:    :math:`\hat V = \frac{1}{N}\sum_i \sum_a \pi_e(a|x_i) \hat{q}(x_i, a)`.
+* DR:    :math:`\hat V = \frac{1}{N}\sum_i \big[ \sum_a \pi_e(a|x_i) \hat{q}(x_i, a)`
+         :math:`+ w_i (r_i - \hat{q}(x_i, a_i)) \big]`.
 
 Standard errors assume i.i.d. observations. They are Wald-type normal
-approximations and are known to under-cover when weights are heavy-tailed.
+approximations and are known to under-cover when weights are heavy-tailed or when
+model estimation error is not accounted for.
 """
 
 from __future__ import annotations
@@ -21,7 +26,8 @@ import numpy as np
 import numpy.typing as npt
 
 from reversallab.contracts.logged_data import LoggedBanditData
-from reversallab.evaluation.weights import importance_weights
+from reversallab.contracts.validation import validate_predicted_rewards
+from reversallab.evaluation.weights import importance_weights, validate_evaluation_action_dist
 from reversallab.exceptions import ConfigurationError, DegenerateWeightsError, InsufficientDataError
 
 
@@ -116,6 +122,78 @@ def snips(
     return _make_estimate("snips", value, se, confidence_level, data.n_samples)
 
 
+def dm(
+    data: LoggedBanditData,
+    evaluation_action_dist: npt.ArrayLike,
+    predicted_rewards: npt.ArrayLike,
+    *,
+    confidence_level: float = 0.95,
+) -> PolicyValueEstimate:
+    r"""Direct Method (DM) off-policy value estimator.
+
+    For logged data and predicted reward matrix :math:`\hat{q}(x, a)`:
+
+    .. math::
+
+        \hat V_{\mathrm{DM}} = \frac{1}{N} \sum_{i=1}^N \sum_{a=1}^K
+        \pi_e(a \mid x_i) \hat{q}(x_i, a).
+
+    Standard error: sample standard deviation of per-observation estimates over ``sqrt(N)``.
+    Note that this naive Wald interval does not account for uncertainty in the estimated
+    reward function :math:`\hat{q}`; calibrated confidence intervals for DM require resampling
+    or cluster-aware methods (planned for M3B-2).
+    """
+    _normal_quantile(confidence_level)
+    _require_two_samples(data)
+    eval_dist = validate_evaluation_action_dist(data, evaluation_action_dist)
+    q_hat = validate_predicted_rewards(
+        predicted_rewards, n_samples=data.n_samples, n_actions=data.n_actions
+    )
+    round_values = np.sum(eval_dist * q_hat, axis=1)
+    value = float(round_values.mean())
+    se = float(round_values.std(ddof=1) / math.sqrt(data.n_samples))
+    return _make_estimate("dm", value, se, confidence_level, data.n_samples)
+
+
+def dr(
+    data: LoggedBanditData,
+    evaluation_action_dist: npt.ArrayLike,
+    predicted_rewards: npt.ArrayLike,
+    *,
+    confidence_level: float = 0.95,
+) -> PolicyValueEstimate:
+    r"""Doubly Robust (DR) off-policy value estimator.
+
+    For logged data, importance weights :math:`w_i = \pi_e(a_i|x_i) / p_i`, and predicted
+    rewards :math:`\hat{q}(x, a)`:
+
+    .. math::
+
+        \hat V_{\mathrm{DR}} = \frac{1}{N} \sum_{i=1}^N \left(
+            \sum_{a=1}^K \pi_e(a \mid x_i) \hat{q}(x_i, a)
+            + w_i (r_i - \hat{q}(x_i, a_i))
+        \right).
+
+    Standard error: sample standard deviation of the round-wise scores over ``sqrt(N)``.
+    Double robustness guarantees asymptotic unbiasedness if either the logging propensities
+    or the reward model is correctly specified (under support). It does not guarantee
+    low finite-sample variance when importance weights are heavy-tailed.
+    """
+    _normal_quantile(confidence_level)
+    _require_two_samples(data)
+    eval_dist = validate_evaluation_action_dist(data, evaluation_action_dist)
+    q_hat = validate_predicted_rewards(
+        predicted_rewards, n_samples=data.n_samples, n_actions=data.n_actions
+    )
+    w = importance_weights(data, eval_dist, require_support=True)
+    dm_terms = np.sum(eval_dist * q_hat, axis=1)
+    q_hat_observed = q_hat[np.arange(data.n_samples), data.action]
+    round_values = dm_terms + w * (data.reward - q_hat_observed)
+    value = float(round_values.mean())
+    se = float(round_values.std(ddof=1) / math.sqrt(data.n_samples))
+    return _make_estimate("dr", value, se, confidence_level, data.n_samples)
+
+
 class Estimator(Protocol):
     def __call__(
         self,
@@ -126,4 +204,17 @@ class Estimator(Protocol):
     ) -> PolicyValueEstimate: ...
 
 
+class ModelBasedEstimator(Protocol):
+    def __call__(
+        self,
+        data: LoggedBanditData,
+        evaluation_action_dist: npt.ArrayLike,
+        predicted_rewards: npt.ArrayLike,
+        *,
+        confidence_level: float = ...,
+    ) -> PolicyValueEstimate: ...
+
+
 ESTIMATORS: dict[str, Estimator] = {"ips": ips, "snips": snips}
+MODEL_BASED_ESTIMATORS: dict[str, ModelBasedEstimator] = {"dm": dm, "dr": dr}
+ALL_ESTIMATORS: set[str] = {"ips", "snips", "dm", "dr"}

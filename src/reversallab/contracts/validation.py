@@ -97,3 +97,19 @@ def validate_action_distribution(
             f"row {worst} sums to {row_sums[worst]:.10g}."
         )
     return dist
+
+
+def validate_predicted_rewards(
+    values: npt.ArrayLike, *, n_samples: int, n_actions: int, name: str = "predicted_rewards"
+) -> FloatArray:
+    """Validate an ``(N, K)`` matrix of expected action rewards.
+
+    Each entry must be a finite float64. Dimensions must match (n_samples, n_actions).
+    """
+    rewards = to_float_array(values, name=name, ndim=2)
+    if rewards.shape != (n_samples, n_actions):
+        raise DataValidationError(
+            f"`{name}` must have shape (n_samples, n_actions) = ({n_samples}, {n_actions}), "
+            f"got {rewards.shape}."
+        )
+    return rewards

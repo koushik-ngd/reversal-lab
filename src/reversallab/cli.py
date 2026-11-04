@@ -16,10 +16,17 @@ from pydantic import ValidationError
 
 from reversallab import __version__
 from reversallab.exceptions import ConfigurationError, ReversalLabError
-from reversallab.experiments.config import load_config, load_parity_config
+from reversallab.experiments.advanced_estimators import run_advanced_estimator_validation
+from reversallab.experiments.config import (
+    load_advanced_config,
+    load_config,
+    load_parity_config,
+    load_uncertainty_config,
+)
 from reversallab.experiments.estimator_validation import run_estimator_validation
 from reversallab.experiments.metadata import load_run, to_jsonable, write_run
 from reversallab.experiments.open_bandit_parity import run_open_bandit_parity
+from reversallab.experiments.uncertainty_calibration import run_uncertainty_calibration
 
 logger = logging.getLogger("reversallab")
 
@@ -33,6 +40,10 @@ def format_report(run: dict[str, Any]) -> str:
     results = run.get("results", {})
     if isinstance(results, dict) and "comparisons" in results:
         return _format_parity_report(run)
+    if isinstance(results, dict) and "scenarios" in results:
+        scs = results["scenarios"]
+        if scs and scs[0].get("cells") and "methods" in scs[0]["cells"][0]:
+            return _format_uncertainty_report(run)
     lines = [
         f"Run:      {run['run_id']}",
         f"Config:   sha256 {run['config_sha256'][:12]}  seed={run['config']['seed']}  "
@@ -42,7 +53,7 @@ def format_report(run: dict[str, Any]) -> str:
         "",
     ]
     header = (
-        f"{'scenario':<24}{'n':>7}  {'est':<6}{'true V':>9}{'mean':>9}{'bias':>10}{'±mcse':>9}"
+        f"{'scenario':<32}{'n':>7}  {'est':<6}{'true V':>9}{'mean':>9}{'bias':>10}{'±mcse':>9}"
         f"{'rmse':>9}{'cover':>7}{'ESS/N':>7}{'fail':>6}"
     )
     lines.append(header)
@@ -52,11 +63,46 @@ def format_report(run: dict[str, Any]) -> str:
         for cell in sc["cells"]:
             for name, s in cell["estimators"].items():
                 lines.append(
-                    f"{sc['name']:<24}{cell['n_samples']:>7}  {name:<6}{true_v:>9.4f}"
+                    f"{sc['name']:<32}{cell['n_samples']:>7}  {name:<6}{true_v:>9.4f}"
                     f"{_fmt(s.get('mean_estimate'), '9.4f')}{_fmt(s.get('bias'), '+10.4f')}"
                     f"{_fmt(s.get('bias_monte_carlo_se'), '9.4f')}{_fmt(s.get('rmse'), '9.4f')}"
                     f"{_fmt(s.get('ci_coverage'), '7.3f')}"
                     f"{cell['diagnostics']['mean_ess_fraction']:>7.3f}{s['n_failed']:>6}"
+                )
+    if run["warnings"]:
+        lines += ["", "Warnings:"] + [f"  - {w}" for w in run["warnings"]]
+    lines += ["", f"Reproduce: {run['reproduction_command']}"]
+    return "\n".join(lines)
+
+
+def _format_uncertainty_report(run: dict[str, Any]) -> str:
+    lines = [
+        f"Run:      {run['run_id']}",
+        (
+            f"Config:   sha256 {run['config_sha256'][:12]}  seed={run['config']['seed']}  "
+            f"replications={run['config']['n_replications']}  "
+            f"bootstraps={run['config'].get('n_bootstraps')}"
+        ),
+        f"Results:  sha256 {run['results_sha256'][:12]}",
+        f"Git:      {run['provenance']['git']}",
+        "",
+    ]
+    header = (
+        f"{'scenario':<30}{'n':>6}  {'method':<28}{'true V':>8}{'mean':>8}{'bias':>9}"
+        f"{'cover':>7}{'±mcse':>7}{'width':>8}{'fail':>5}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    for sc in run["results"]["scenarios"]:
+        true_v = sc["evaluation_policy_value"]["value"]
+        for cell in sc["cells"]:
+            for name, s in cell["methods"].items():
+                lines.append(
+                    f"{sc['name']:<30}{cell['n_samples']:>6}  {name:<28}{true_v:>8.4f}"
+                    f"{_fmt(s.get('point_estimate_mean'), '8.4f')}{_fmt(s.get('bias'), '+9.4f')}"
+                    f"{_fmt(s.get('empirical_coverage'), '7.3f')}"
+                    f"{_fmt(s.get('coverage_monte_carlo_se'), '7.3f')}"
+                    f"{_fmt(s.get('mean_interval_width'), '8.4f')}{s['n_failed']:>5}"
                 )
     if run["warnings"]:
         lines += ["", "Warnings:"] + [f"  - {w}" for w in run["warnings"]]
@@ -117,6 +163,81 @@ def _cmd_validate_estimators(args: argparse.Namespace) -> int:
     command = f"reversallab validate-estimators --config {Path(args.config).as_posix()}"
     if args.n_replications is not None:
         command += f" --n-replications {args.n_replications}"
+    run_dir = write_run(
+        Path(args.output_dir),
+        name=config.name,
+        config=config_dict,
+        results=output.results,
+        warnings=output.warnings,
+        runtime=output.runtime,
+        reproduction_command=command,
+    )
+    print(format_report(load_run(run_dir)))
+    print(f"\nWrote {run_dir / 'run.json'}")
+    return 0
+
+
+def _cmd_validate_advanced_estimators(args: argparse.Namespace) -> int:
+    config = load_advanced_config(args.config)
+    if args.n_replications is not None:
+        try:
+            config = type(config).model_validate(
+                {**config.model_dump(), "n_replications": args.n_replications}
+            )
+        except ValidationError as exc:
+            raise ConfigurationError(f"Invalid --n-replications override:\n{exc}") from exc
+    config_dict = to_jsonable(config.model_dump(mode="json"))
+    logger.info(
+        "experiment=%s seed=%d replications=%d folds=%d",
+        config.name,
+        config.seed,
+        config.n_replications,
+        config.n_folds,
+    )
+    output = run_advanced_estimator_validation(config)
+    command = f"reversallab validate-advanced-estimators --config {Path(args.config).as_posix()}"
+    if args.n_replications is not None:
+        command += f" --n-replications {args.n_replications}"
+    run_dir = write_run(
+        Path(args.output_dir),
+        name=config.name,
+        config=config_dict,
+        results=output.results,
+        warnings=output.warnings,
+        runtime=output.runtime,
+        reproduction_command=command,
+    )
+    print(format_report(load_run(run_dir)))
+    print(f"\nWrote {run_dir / 'run.json'}")
+    return 0
+
+
+def _cmd_calibrate_uncertainty(args: argparse.Namespace) -> int:
+    config = load_uncertainty_config(args.config)
+    overrides: dict[str, Any] = {}
+    if args.n_replications is not None:
+        overrides["n_replications"] = args.n_replications
+    if args.n_bootstraps is not None:
+        overrides["n_bootstraps"] = args.n_bootstraps
+    if overrides:
+        try:
+            config = type(config).model_validate({**config.model_dump(), **overrides})
+        except ValidationError as exc:
+            raise ConfigurationError(f"Invalid CLI argument overrides:\n{exc}") from exc
+    config_dict = to_jsonable(config.model_dump(mode="json"))
+    logger.info(
+        "experiment=%s seed=%d replications=%d bootstraps=%s",
+        config.name,
+        config.seed,
+        config.n_replications,
+        config.n_bootstraps,
+    )
+    output = run_uncertainty_calibration(config)
+    command = f"reversallab calibrate-uncertainty --config {Path(args.config).as_posix()}"
+    if args.n_replications is not None:
+        command += f" --n-replications {args.n_replications}"
+    if args.n_bootstraps is not None:
+        command += f" --n-bootstraps {args.n_bootstraps}"
     run_dir = write_run(
         Path(args.output_dir),
         name=config.name,
@@ -193,6 +314,53 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the configured number of replications (recorded in the run config).",
     )
     p_val.set_defaults(func=_cmd_validate_estimators)
+
+    p_adv = sub.add_parser(
+        "validate-advanced-estimators",
+        help="Validate DM, DR, and cross-fitting against ground truth (experiment 003).",
+        description=(
+            "Simulate logged bandit data, run K-fold cross-fitting for reward modeling, "
+            "and compare IPS, SNIPS, DM, and DR under good/poor overlap and "
+            "correct/misspecified models."
+        ),
+    )
+    p_adv.add_argument("--config", required=True, help="Path to an experiment YAML file.")
+    p_adv.add_argument(
+        "--output-dir", default="runs", help="Directory in which a new run directory is created."
+    )
+    p_adv.add_argument(
+        "--n-replications",
+        type=int,
+        default=None,
+        help="Override the configured number of replications (recorded in the run config).",
+    )
+    p_adv.set_defaults(func=_cmd_validate_advanced_estimators)
+
+    p_unc = sub.add_parser(
+        "calibrate-uncertainty",
+        help="Benchmark uncertainty and CI calibration against ground truth (Exp 004).",
+        description=(
+            "Simulate logged bandit data, evaluate Wald and bootstrap confidence intervals "
+            "across good/poor overlap, correct/misspecified models, and different sample sizes."
+        ),
+    )
+    p_unc.add_argument("--config", required=True, help="Path to an experiment YAML file.")
+    p_unc.add_argument(
+        "--output-dir", default="runs", help="Directory in which a new run directory is created."
+    )
+    p_unc.add_argument(
+        "--n-replications",
+        type=int,
+        default=None,
+        help="Override the configured number of replications (recorded in the run config).",
+    )
+    p_unc.add_argument(
+        "--n-bootstraps",
+        type=int,
+        default=None,
+        help="Override the configured number of bootstrap draws.",
+    )
+    p_unc.set_defaults(func=_cmd_calibrate_uncertainty)
 
     p_ref = sub.add_parser(
         "compare-reference",
