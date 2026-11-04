@@ -299,6 +299,27 @@ class ReversalPrototypeConfig(_Strict):
         return self
 
 
+class ReversalReliabilityConfig(_Strict):
+    """Configuration for experiment 006: decision-reversal reliability benchmark."""
+
+    name: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_\-]+$")
+    description: str = ""
+    seed: int = Field(ge=0)
+    n_replications: int = Field(default=20, ge=2)
+    confidence_level: float = Field(default=0.95, gt=0.0, lt=1.0)
+    n_folds: int = Field(default=3, ge=2)
+    deploy_threshold_epsilon: float = Field(default=0.10, ge=0.0, le=0.50)
+    reference_n_contexts: int = Field(default=50_000, ge=1000)
+    scenarios: list[ReversalScenarioConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check(self) -> ReversalReliabilityConfig:
+        names = [s.name for s in self.scenarios]
+        if len(set(names)) != len(names):
+            raise ValueError("scenario names must be unique.")
+        return self
+
+
 def load_config(path: str | Path) -> EstimatorValidationConfig:
     """Load and validate a YAML experiment config, raising :class:`ConfigurationError`."""
     p = Path(path)
@@ -380,6 +401,23 @@ def load_reversal_config(path: str | Path) -> ReversalPrototypeConfig:
         raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
     try:
         return ReversalPrototypeConfig.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
+
+
+def load_reliability_config(path: str | Path) -> ReversalReliabilityConfig:
+    """Load experiment 006 decision-reversal reliability config."""
+    p = Path(path)
+    if not p.is_file():
+        raise ConfigurationError(f"Config file not found: {p}")
+    try:
+        raw: Any = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(f"Could not parse YAML in {p}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigurationError(f"{p} must contain a YAML mapping at the top level.")
+    try:
+        return ReversalReliabilityConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigurationError(f"Invalid experiment config {p}:\n{exc}") from exc
 

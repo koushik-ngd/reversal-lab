@@ -1,12 +1,26 @@
 # Limitations
 
-Status: M2. Items below are properties of this version, not a backlog disguised
+Status: M3B-2. Items below are properties of this version, not a backlog disguised
 as completed work.
 
-## Estimators
+## Estimators and Uncertainty Quantification
 
-* Only IPS and SNIPS are implemented. Direct Method and Doubly Robust are not.
-  There is no reward model and no cross-fitting.
+* IPS, SNIPS, Direct Method (DM), and Doubly Robust (DR) are implemented.
+* **Direct Method misspecification bias and uncalibrated naive Wald intervals:**
+  - DM depends entirely on the accuracy of the reward model \(\hat{q}(x, a)\). If \(\hat{q}\) is misspecified, DM suffers from irreducible asymptotic bias that does not decay with sample size \(N\). In Experiment 004 under misspecification at \(N = 2000\), DM coverage collapses to 0.00 across all confidence interval methods.
+  - Naive DM Wald intervals treat \(\hat{q}\) as fixed, completely omitting reward-model estimation variance. In Experiment 004, naive DM Wald undercovers severely even under a correctly specified linear model (28% coverage at \(N = 500\), 35% at \(N = 2000\) for nominal 95%).
+  - Full-refit cross-fitting bootstrap remedies this omission for well-specified models (achieving 86%–92% empirical coverage), but cannot overcome asymptotic bias under misspecification.
+* **Doubly Robust finite-sample variance under poor overlap:**
+  - Although DR is asymptotically consistent whenever propensities are correct, double robustness does **not** guarantee low finite-sample variance.
+  - Under poor overlap (heavy-tailed importance weights \(w_i\)), the factual residual \(w_i (r_i - \hat{q}(x_i, a_i))\) introduces massive sampling variance, leading to RMSE substantially worse than DM (e.g., in Experiment 003, DR RMSE was 0.1411 vs DM RMSE of 0.0166 at \(N = 2000\) under poor overlap).
+* **Influence-score Wald calibration vs. poor-overlap undercoverage:**
+  - DR influence-score Wald intervals (`dr_influence_wald`) achieve calibrated coverage (94%–98%) under good overlap, even when the reward model is misspecified (thanks to Neyman orthogonality and known logging propensities).
+  - However, under poor overlap (mean ESS fraction \(\approx 0.053\)), DR influence Wald undercovers at 88%–91% (and IPS Wald undercovers at 82%–84%) because extreme weights violate finite-sample normality.
+* **Nonparametric bootstrap fails to repair heavy-tail undercoverage:**
+  - Under poor overlap, nonparametric bootstrap intervals (`ips_bootstrap_percentile`, `dr_bootstrap_refit_percentile`, `dr_bootstrap_refit_basic`) do not improve coverage over Wald intervals (e.g., IPS bootstrap covers 81%–85%, DR refit bootstrap covers 83%–88%).
+  - This is consistent with Bickel & Freedman (1981): when importance weight variance is large or infinite, bootstrap empirical distributions do not converge uniformly, and resamples are dominated by rare extreme weights.
+* **Diagnostics reliably detect uncalibrated regimes:**
+  - Extended diagnostics (`concentrated_weights`, `low_effective_sample_size`, `invalid_inference_assumptions`) fired on 100% of poor-overlap replicates in Experiment 004, providing actionable warnings without invalidating point estimates.
 * IPS is unbiased only under the assumptions in `assumptions.md`. In a finite
   sample it is unbounded above for nonnegative weights. An estimate above any
   bound on the reward is possible and is not truncated.
@@ -18,13 +32,9 @@ as completed work.
   conditions. Self-normalisation often reduces variance when rewards are bounded
   and weights are heavy-tailed. That is a known property of the estimator, not
   a finding of this project, and it is not true for every reward distribution.
-* Wald intervals undercover when weights are heavy-tailed. The per-dataset
-  standard error can be much smaller than the standard deviation of the estimate
-  across repeated samples, because one sample often misses the tail that
-  dominates the sampling distribution. Experiment 001 measures this. It does
-  not correct it.
-* No bootstrap, cluster-robust, or effective-sample-size-adjusted interval is
-  implemented. `group_id` is stored and ignored.
+* No cluster-robust interval or dependent-observation adjustment is
+  implemented. `group_id` is stored and ignored. Real-data cluster bootstrap is deferred
+  until genuine grouping identifiers and sampling assumptions are established.
 * Kish effective sample size summarises weight imbalance. It is not the exact
   variance of IPS, which depends on \(w r\), not on \(w\) alone.
 * The default diagnostic thresholds (ESS fraction 0.1, max weight share 0.05,
@@ -42,8 +52,8 @@ as completed work.
 
 * One data source is a synthetic single-position contextual bandit.
   Contexts are isotropic Gaussian. Reward means are linear in the context, passed
-  through a sigmoid for binary rewards. This is a correctness testbed. It is not
-  a model of a production recommender.
+  through a sigmoid for binary rewards or used directly for Gaussian rewards.
+  This is a correctness testbed. It is not a model of a production recommender.
 * The ground-truth policy value is Monte Carlo over contexts, with a reported
   standard error. For Gaussian rewards and a uniform policy it has the closed
   form \(\bar b\), and that case is tested. Other policies do not have a closed
@@ -68,10 +78,11 @@ Verified against the files on 2026-10-28. The write-up is
   action's probability. Support is not verifiable from those values.
 * User-feature hashes repeat. Estimators still assume independent rows, so the
   Wald intervals would be anti-conservative if those hashes are a dependence unit.
-  Experiment 002 does not report intervals.
+  Experiments 002 and 003 do not assume repeated hashes identify actual users.
 * About 40–70 clicks per file. That sample is not evidence about interval coverage.
-* IPS and SNIPS match OBP's IPW and SNIPW on the same arrays (experiment 002).
-  That match is not a published full-dataset benchmark.
+* Reference parity testing executes isolated upstream methods from Open Bandit Pipeline
+  via a subprocess script (`src/reversallab/evaluation/obp_reference.py`) rather than
+  importing the full unmaintained upstream package.
 * The small files ship inside Apache-2.0 `zr-obp`. Cite arXiv:2008.07146 when
   using them. The full-data license is still unread.
 
@@ -84,11 +95,9 @@ Verified against the files on 2026-10-28. The write-up is
 
 ## Reproducibility gaps
 
-* The M2 baseline commit is `2a83f9e184f51f1b9356f8d32ac7601266b22f2e`.
-  Later edits stay dirty in `run.json` until they are committed. `uv.lock`
-  is hashed into provenance. Runtime and platform stay outside `results_sha256`.
-* The Wald interval undercovers under poor overlap. The formula audit is
-  `docs/standard_error_audit.md`. No replacement interval is implemented.
-* OBP is executed from a local source checkout, not installed as a dependency.
-  Its package init does not import on this Python. The bridge is described in
-  experiment 002.
+* The M3A commit is `ab4dfad`. Working tree changes for M3B-1 are tracked
+  and verified via deterministic seeds and reproducible configs.
+* Naive Wald intervals for DM and DR omit model estimation variance. Calibrated
+  uncertainty intervals are planned for M3B-2.
+* OBP reference checks run isolated estimator functions in an isolated subprocess.
+  Full OBP is not an installed dependency.

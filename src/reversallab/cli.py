@@ -21,6 +21,7 @@ from reversallab.experiments.config import (
     load_advanced_config,
     load_config,
     load_parity_config,
+    load_reliability_config,
     load_reversal_config,
     load_uncertainty_config,
 )
@@ -28,6 +29,7 @@ from reversallab.experiments.estimator_validation import run_estimator_validatio
 from reversallab.experiments.metadata import load_run, to_jsonable, write_run
 from reversallab.experiments.open_bandit_parity import run_open_bandit_parity
 from reversallab.experiments.reversal_prototype import run_reversal_prototype
+from reversallab.experiments.reversal_reliability import run_reversal_reliability
 from reversallab.experiments.uncertainty_calibration import run_uncertainty_calibration
 
 logger = logging.getLogger("reversallab")
@@ -44,6 +46,8 @@ def format_report(run: dict[str, Any]) -> str:
         return _format_parity_report(run)
     if isinstance(results, dict) and "scenarios" in results:
         scs = results["scenarios"]
+        if scs and "reversal_search_validation" in scs[0]:
+            return _format_reliability_report(run)
         if scs and "reversal_search" in scs[0]:
             return _format_reversal_report(run)
         if scs and scs[0].get("cells") and "methods" in scs[0]["cells"][0]:
@@ -144,6 +148,49 @@ def _format_reversal_report(run: dict[str, Any]) -> str:
             f"{ci_str:^17}  {dec['naive_point_estimate']:<9}"
             f"{dec['baseline_confidence_bound']:<13}"
             f"{d_rev_str:>8}  {rev['status']:<20}"
+        )
+        lines.append(row)
+    if run["warnings"]:
+        lines += ["", "Warnings:"] + [f"  - {w}" for w in run["warnings"]]
+    lines += ["", f"Reproduce: {run['reproduction_command']}"]
+    return "\n".join(lines)
+
+
+def _format_reliability_report(run: dict[str, Any]) -> str:
+    lines = [
+        f"Run:      {run['run_id']}",
+        (
+            f"Config:   sha256 {run['config_sha256'][:12]}  seed={run['config']['seed']}  "
+            f"replications={run['config'].get('n_replications', 20)}  "
+            f"deploy_eps={run['config'].get('deploy_threshold_epsilon', 0.10)}"
+        ),
+        f"Results:  sha256 {run['results_sha256'][:12]}",
+        f"Git:      {run['provenance']['git']}",
+        "",
+    ]
+    header = (
+        f"{'scenario':<28}{'N':>5}  {'margin':>6}  {'true Delta':>10}  "
+        f"{'Meth A':>7} {'Meth B':>7} {'Meth C':>7} {'Meth D':>7} {'Meth E':>7}  "
+        f"{'max |ana-num|':>13} {'DiagFail':>8}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    for sc in run["results"]["scenarios"]:
+        gt = sc["ground_truth"]
+        m = sc["methods"]
+        rec_a = f"{m['method_a_point_estimate']['recommend_rate'] * 100:.1f}%"
+        rec_b = f"{m['method_b_baseline_ci']['recommend_rate'] * 100:.1f}%"
+        rec_c = f"{m['method_c_worst_stratum']['recommend_rate'] * 100:.1f}%"
+        rec_d = f"{m['method_d_pointwise_reversal']['recommend_rate'] * 100:.1f}%"
+        rec_e = f"{m['method_e_simultaneous_band']['recommend_rate'] * 100:.1f}%"
+        disc = sc["reversal_search_validation"]["max_analytical_discrepancy"]
+        disc_str = f"{disc:.2e}" if disc is not None else "0.0"
+        diag_fail = f"{sc['diagnostics']['diagnostic_gate_failed_rate'] * 100:.1f}%"
+        row = (
+            f"{sc['scenario']:<28}{sc['n_samples']:>5}  {sc['margin']:>6.3f}  "
+            f"{gt['true_delta']:>+10.4f}  "
+            f"{rec_a:>7} {rec_b:>7} {rec_c:>7} {rec_d:>7} {rec_e:>7}  "
+            f"{disc_str:>13} {diag_fail:>8}"
         )
         lines.append(row)
     if run["warnings"]:
@@ -349,6 +396,46 @@ def _cmd_run_reversal(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run_reliability(args: argparse.Namespace) -> int:
+    config = load_reliability_config(args.config)
+    overrides: dict[str, Any] = {}
+    if args.seed is not None:
+        overrides["seed"] = args.seed
+    if args.n_replications is not None:
+        overrides["n_replications"] = args.n_replications
+    if overrides:
+        try:
+            config = type(config).model_validate({**config.model_dump(), **overrides})
+        except ValidationError as exc:
+            raise ConfigurationError(f"Invalid CLI argument overrides:\n{exc}") from exc
+    config_dict = to_jsonable(config.model_dump(mode="json"))
+    logger.info(
+        "experiment=%s seed=%d replications=%d scenarios=%d",
+        config.name,
+        config.seed,
+        config.n_replications,
+        len(config.scenarios),
+    )
+    output = run_reversal_reliability(config)
+    command = f"reversallab run-reliability --config {Path(args.config).as_posix()}"
+    if args.seed is not None:
+        command += f" --seed {args.seed}"
+    if args.n_replications is not None:
+        command += f" --n-replications {args.n_replications}"
+    run_dir = write_run(
+        Path(args.output_dir),
+        name=config.name,
+        config=config_dict,
+        results=output.results,
+        warnings=output.warnings,
+        runtime=output.runtime,
+        reproduction_command=command,
+    )
+    print(format_report(load_run(run_dir)))
+    print(f"\nWrote {run_dir / 'run.json'}")
+    return 0
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     try:
         run = load_run(Path(args.run_dir))
@@ -472,6 +559,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the configured random seed.",
     )
     p_rev.set_defaults(func=_cmd_run_reversal)
+
+    p_rel = sub.add_parser(
+        "run-reliability",
+        help="Run decision-reversal reliability benchmark (experiment 006).",
+        description=(
+            "Multi-replication Monte Carlo comparison of 5 decision rules across scenarios, "
+            "evaluating false recommendations, withholding rates, and search exactness."
+        ),
+    )
+    p_rel.add_argument("--config", required=True, help="Path to an experiment YAML file.")
+    p_rel.add_argument(
+        "--output-dir", default="runs", help="Directory in which a new run directory is created."
+    )
+    p_rel.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override the configured random seed.",
+    )
+    p_rel.add_argument(
+        "--n-replications",
+        type=int,
+        default=None,
+        help="Override the configured number of replications.",
+    )
+    p_rel.set_defaults(func=_cmd_run_reliability)
 
     p_rep = sub.add_parser(
         "report",

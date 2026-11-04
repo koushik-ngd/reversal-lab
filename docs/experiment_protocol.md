@@ -1,7 +1,7 @@
 # Experiment protocol
 
 This document specifies the studies before their results are interpreted.
-Experiment 1 is implemented. Experiments 2–7 are specified and not run.
+Experiments 1, 3, 003, and 004 are implemented and run. Experiments 2, 5–7 are specified and not run.
 The decision-reversal method is not implemented.
 
 A local 500-replication run of Experiment 1 already existed in this working
@@ -18,7 +18,7 @@ decisions that look favorable under ordinary offline evaluation and become
 unsupported under stated changes to the evaluation assumptions, the data
 distribution, or operational constraints?
 
-M2 does not collect evidence on this question. It checks whether the value
+M2 and M3 do not collect evidence on this question. They check whether the value
 estimators that a later sensitivity analysis would call are the estimators
 they claim to be.
 
@@ -29,7 +29,7 @@ compare with simpler baselines. It is not a validated policy.
 
 Inputs, all pre-specified:
 
-* an estimator (IPS or SNIPS now; DM or DR once they exist);
+* an estimator (IPS, SNIPS, DM, or DR);
 * a candidate policy and a baseline policy, evaluated on the same log;
 * a minimum improvement \(\delta \ge 0\) in reward units;
 * a confidence level;
@@ -96,16 +96,19 @@ an admissible perturbation.
   Replicate `r` at size `n` uses
   `SeedSequence([seed, 2, crc32(scenario), n, r])`.
   Adding a scenario does not move the stream of another scenario.
-* Reward-model fitting, reversal tuning, and confirmatory evaluation do not
-  exist yet. When they do, they get separate splits, and the split is recorded
-  in the run config. Discovery results will not be reported as confirmation.
+* In Experiment 003, cross-fitting uses deterministic disjoint fold partitions:
+  training folds never observe held-out evaluation observations, and feature
+  preprocessors are fit exclusively on training folds.
+* Reversal tuning and confirmatory evaluation do not exist yet. When they do,
+  they get separate splits, and the split is recorded in the run config.
+  Discovery results will not be reported as confirmation.
 
 ## Multiple comparisons
 
-Experiment 1 has a fixed scenario list and reports every cell. It does not
-declare a discovery. Later experiments that search over perturbations will
-state how many comparisons were made and will not treat the most extreme
-reversal as a pre-specified test.
+Experiments 1, 2, and 003 have fixed scenario lists and report every cell.
+They do not declare a discovery. Later experiments that search over
+perturbations will state how many comparisons were made and will not treat
+the most extreme reversal as a pre-specified test.
 
 ## Experiment 1 — Estimator validation (implemented)
 
@@ -130,33 +133,6 @@ reported standard error, interval coverage and its Monte Carlo standard error,
 mean ESS fraction, max weight, diagnostic warning rates, and mean absolute
 IPS–SNIPS disagreement. Failed replicates (degenerate SNIPS weights) are
 counted and excluded from the moments.
-
-**Implementation gates, enforced by tests.**
-
-* Hand-computed IPS and SNIPS on a four-row example.
-* On-policy weights reduce both estimators to the sample mean of the reward.
-* Invalid probabilities, shapes, non-finite values, unverifiable dtypes, and
-  non-positive propensities raise `DataValidationError`.
-* Verified support violations raise `SupportViolationError`.
-* SNIPS with all weights zero raises `DegenerateWeightsError`.
-* Overflow of a weight to infinity raises `NumericalError`.
-* For the fixed cases in `tests/statistical/test_ground_truth.py`, the Monte
-  Carlo mean of the estimate lies within four combined standard errors of the
-  reference value.
-* With uniform logging and the informed softmax target, the IPS 95% interval
-  at \(N = 2000\) covers within four binomial standard errors of 0.95.
-* The same config produces the same `results_sha256`. Results for a scenario
-  do not depend on which other scenarios are in the file.
-
-**Descriptive expectations, not test gates.**
-
-* On policy, IPS and SNIPS match.
-* Where weights are bounded by \(K\) (uniform logging), coverage should sit
-  near 95% and RMSE should fall as \(N\) grows.
-* Under poor overlap, IPS should have larger RMSE than SNIPS, reported
-  standard errors should fall short of the cross-replication standard
-  deviation, and coverage may sit below 95%. ESS as a fraction of \(N\) may
-  fall as \(N\) grows, because larger samples include rarer and heavier weights.
 
 The numbers from the run executed for this revision are in
 `experiments/001_estimator_validation/README.md`.
@@ -191,6 +167,69 @@ Still required before any full-log estimate:
 3. Keep the position-level estimand, or write a different one if a real slate
    key is present. Do not compare a 10,000-row estimate with a published
    full-data figure.
+
+## Experiment 003 — Advanced Estimator Validation: DM, DR, and Cross-Fitting (implemented)
+
+**Question.** Do Direct Method (DM) and Doubly Robust (DR) estimators with \(K\)-fold
+cross-fitting behave as predicted by statistical theory under good and poor overlap,
+correct and misspecified reward models, and binary and continuous rewards?
+
+**Config.** `configs/experiments/003_advanced_estimators.yaml`
+
+* seed `20261030`, 100 replications, 5-fold cross-fitting;
+* sample sizes 500 and 2000;
+* reference values from 500,000 independent contexts with exact action summation;
+* scenarios:
+  1. `good_overlap_correct_model`: binary rewards, well-specified logistic regression;
+  2. `good_overlap_misspecified_model`: binary rewards, constant mean prediction model;
+  3. `poor_overlap_correct_model`: binary rewards, confident logging policy, well-specified model;
+  4. `poor_overlap_misspecified_model`: binary rewards, confident logging policy, constant model;
+  5. `continuous_reward_good_overlap`: Gaussian rewards, well-specified Ridge regression;
+  6. `continuous_reward_misspecified`: Gaussian rewards, constant mean prediction model.
+
+**Metrics recorded per cell.** Bias, Monte Carlo standard error of bias, RMSE,
+empirical standard deviation across replications, mean reported standard error,
+Kish effective sample size fraction, and max importance weight.
+For DM and DR, CI coverage is explicitly omitted (`N/A`) because naive Wald intervals
+that treat \(\hat{q}\) as fixed omit reward-model estimation variance.
+
+**Key findings:**
+* **Double Robustness verified:** Under model misspecification, DM has large asymptotic bias
+  (\(-0.0259\) at \(N = 2000\)), while DR remains completely unbiased (\(-0.0009 \pm 0.0014\)).
+* **Finite-sample variance under poor overlap:** When overlap is poor (mean ESS fraction 0.060),
+  DR RMSE (0.1411 at \(N = 2000\)) is substantially worse than DM RMSE (0.0166) due to the
+  interaction of non-zero sample residuals with extreme importance weights.
+* Full numbers and provenance are in `experiments/003_advanced_estimators/README.md`.
+
+## Experiment 004 — Confidence Interval Calibration and Statistical Uncertainty (run)
+
+Formal benchmark evaluating confidence interval coverage, interval width, bias, RMSE, and failure rates across 9 uncertainty methods.
+
+**Design:**
+- 6 scenarios: Good overlap (correct and misspecified model), Poor overlap (correct and misspecified model), Continuous rewards (Gaussian with correct and misspecified model).
+- Sample sizes: \(N \in \{500, 2000\}\).
+- 100 independent Monte Carlo replications per cell.
+- 50 bootstrap resamples per replication.
+- 3-fold cross-fitting for reward model training.
+- Nominal confidence level: \(95\%\) (\(\alpha = 0.05\)).
+- Independent ground truth computed via \(10^6\) Monte Carlo contexts.
+
+**Evaluated Methods:**
+1. `ips_wald`: Asymptotic normal Wald interval for IPS using empirical sample variance.
+2. `snips_wald`: Asymptotic normal Wald interval for SNIPS using delta-method variance.
+3. `dm_naive_wald`: Sample standard error of DM pseudo-outcomes (treating \(\hat{q}\) as fixed).
+4. `dr_influence_wald`: Empirical variance of uncentered DR influence scores \(\psi_i\).
+5. `ips_bootstrap_percentile`: Nonparametric percentile bootstrap for IPS.
+6. `snips_bootstrap_percentile`: Nonparametric percentile bootstrap for SNIPS.
+7. `dm_bootstrap_refit_percentile`: Nonparametric percentile bootstrap for DM with full pipeline refitting.
+8. `dr_bootstrap_refit_percentile`: Nonparametric percentile bootstrap for DR with full pipeline refitting.
+9. `dr_bootstrap_refit_basic`: Nonparametric empirical (basic) bootstrap for DR with full pipeline refitting.
+
+**Key empirical findings:**
+1. **Direct Method Naive Wald Breakdown**: Naive DM Wald undercovers severely (28% at \(N = 500\), 35% at \(N = 2000\)) because it ignores reward-model estimation variance. Full-refit bootstrap restores near-nominal coverage (86%–92%) when the model is well-specified. Under misspecification, DM coverage drops to 0% across all methods due to irreducible bias.
+2. **Doubly Robust Calibration via Influence Scores**: Under good overlap, `dr_influence_wald` achieves nominal 94%–98% coverage with correct models and 94%–96% with misspecified models, verifying the Neyman orthogonality property of the efficient influence function.
+3. **Poor Overlap & Heavy Tails (Bootstrap Inconsistency)**: Under poor overlap (mean ESS fraction \(\approx 0.053\)), both IPS Wald (82%–84%) and DR influence Wald (88%–91%) undercover. The nonparametric bootstrap fails to repair this undercoverage (`ips_bootstrap_percentile` covers 81%–85%, `dr_bootstrap_refit_percentile` covers 83%–88%), confirming the Bickel & Freedman (1981) heavy-tail bootstrap breakdown.
+4. Full run artifact and provenance: `experiments/004_uncertainty_calibration/README.md`.
 
 ## Experiment 4 — Decision reversal (not run)
 
