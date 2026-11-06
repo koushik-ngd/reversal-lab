@@ -1,0 +1,27 @@
+# Version control & tooling caches
+.git/
+.github/
+.venv/
+.venv-obp/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Data, notebooks, and experiment runs
+runs/
+data/
+notebooks/
+experiments/
+
+# Temporary or editor files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -137,6 +137,7 @@ uv run reversallab report --run-dir runs/<run_id>
 
 ## Documentation
 
+- [`docs/service.md`](docs/service.md): FastAPI REST service endpoints, validation, and benchmarking.
 - [`docs/quickstart.md`](docs/quickstart.md): Step-by-step tutorial for practitioners and engineers.
 - [`docs/api_reference.md`](docs/api_reference.md): Public SDK API reference (`BanditDataset`, `PolicyValueEvaluator`, `PolicyComparison`).
 - [`notebooks/quickstart_decision_reversal.ipynb`](notebooks/quickstart_decision_reversal.ipynb): Executable Jupyter tutorial with actual computed results.

@@ -26,8 +26,15 @@ dependencies = [
 [project.scripts]
 reversallab = "reversallab.cli:main"
 
+[project.optional-dependencies]
+service = [
+    "fastapi>=0.162.0",
+    "uvicorn>=0.54.0",
+]
+
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "ipykernel>=7.4.0",
     "mypy>=1.10",
     "nbclient>=0.11.0",
@@ -51,6 +58,7 @@ markers = [
 ]
 filterwarnings = [
     "ignore::RuntimeWarning:zmq.*",
+    "ignore::Warning:starlette.*",
 ]
 
 [tool.ruff]

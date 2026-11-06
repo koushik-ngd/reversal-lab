@@ -27,7 +27,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies from lockfile
-        run: uv sync --frozen --all-groups
+        run: uv sync --frozen --all-groups --all-extras
 
       - name: Lint (Ruff)
         run: uv run ruff check
@@ -66,7 +66,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --frozen --all-groups
+        run: uv sync --frozen --all-groups --all-extras
 
       - name: Statistical Monte Carlo Tests
         run: uv run pytest -m "statistical"

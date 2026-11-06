@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 import numpy as np
 
@@ -47,4 +47,4 @@ def sample_actions(action_dist: FloatArray, rng: np.random.Generator) -> IntArra
     cdf /= cdf[:, -1:]
     u = rng.random(size=n_samples)
     actions = np.sum(u[:, None] >= cdf, axis=1)
-    return actions.astype(np.int64)
+    return cast(IntArray, actions.astype(np.int64))
