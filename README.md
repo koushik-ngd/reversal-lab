@@ -78,9 +78,9 @@ report = rl.PolicyComparison.evaluate(
     candidate_policy=candidate,
     baseline_policy=baseline,
     estimator="dr",
-    margin=0.02,          # Minimum deployment advantage required (+2%)
+    margin=0.02,  # Minimum deployment advantage required (+2%)
     deploy_epsilon=0.10,  # Certified demographic envelope [q0 - 0.10, q0 + 0.10]
-    max_epsilon=0.40,     # Maximum search radius
+    max_epsilon=0.40,  # Maximum search radius
     cross_fitting_folds=3,
 )
 
@@ -131,6 +131,8 @@ uv run reversallab report --run-dir runs/<run_id>
 ## Documentation
 
 - [`docs/quickstart.md`](docs/quickstart.md): Step-by-step tutorial for practitioners and engineers.
+- [`docs/api_reference.md`](docs/api_reference.md): Public SDK API reference (`BanditDataset`, `PolicyValueEvaluator`, `PolicyComparison`).
+- [`notebooks/quickstart_decision_reversal.ipynb`](notebooks/quickstart_decision_reversal.ipynb): Executable Jupyter tutorial with actual computed results.
 - [`docs/architecture.md`](docs/architecture.md): System layout, public SDK contracts, and data-flow diagrams.
 - [`docs/decision_reliability_audit.md`](docs/decision_reliability_audit.md): Complete mathematical and empirical closeout audit of Experiment 007.
 - [`docs/methodology.md`](docs/methodology.md): Formal definitions of estimators, influence scores, and mixture perturbations.

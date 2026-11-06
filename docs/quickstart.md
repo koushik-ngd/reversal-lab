@@ -42,9 +42,9 @@ import numpy as np
 import reversallab as rl
 
 # Ingest numpy arrays from your logged logs
-contexts = np.random.randn(1000, 4)      # (N, D) context features
-actions = np.random.randint(0, 3, 1000)   # (N,) discrete actions in [0, K)
-rewards = np.random.randn(1000)          # (N,) observed scalar rewards
+contexts = np.random.randn(1000, 4)  # (N, D) context features
+actions = np.random.randint(0, 3, 1000)  # (N,) discrete actions in [0, K)
+rewards = np.random.randn(1000)  # (N,) observed scalar rewards
 propensities = np.full(1000, 1.0 / 3.0)  # (N,) logging policy probabilities P(a_i | x_i) > 0
 
 dataset = rl.BanditDataset.from_arrays(
@@ -96,9 +96,9 @@ comparison_report = rl.PolicyComparison.evaluate(
     candidate_policy=candidate_policy,
     baseline_policy=baseline_policy,
     estimator="dr",
-    margin=0.02,           # Minimum deployment margin required (e.g. +2% reward)
-    deploy_epsilon=0.10,   # Operational mixture tolerance envelope [q0 - eps, q0 + eps]
-    max_epsilon=0.40,      # Maximum search bound for reversal distance
+    margin=0.02,  # Minimum deployment margin required (e.g. +2% reward)
+    deploy_epsilon=0.10,  # Operational mixture tolerance envelope [q0 - eps, q0 + eps]
+    max_epsilon=0.40,  # Maximum search bound for reversal distance
     confidence_level=0.95,
     cross_fitting_folds=3,
 )
@@ -156,7 +156,7 @@ Policy Margin:   delta = 0.0200 (Confidence level: 95%)
 ### The Three Decision Rules
 - **RECOMMEND**: The lower 95% confidence bound strictly exceeds the operational margin $\delta$. Candidate deployment is statistically justified.
 - **HOLD**: The upper 95% confidence bound is strictly below $\delta$. The candidate reliably fails to beat the margin.
-- **INCONCLUSIVE**: The confidence interval covers $\delta$, or the diagnostic gate failed (e.g., active logging propensity deficit or ESS collapse). The data lacks statistical power or support to certify deployment safely.
+- **INCONCLUSIVE**: The confidence interval covers $\delta$, or the multi-factor diagnostic gate failed (e.g., active logging propensity deficit $0 < p_i < \tau$ or ESS collapse). Low but positive logging propensities are not mathematical support violations (since $p_i > 0$), but cause severe finite-sample variance inflation that invalidates asymptotic normal intervals. Conservative deferral to `INCONCLUSIVE` protects against premature deployment under unstable variance.
 
 ### Inverse Reversal Distance vs. Forward Worst-Case
 - **Inverse Reversal Distance ($d^*$):** The minimum shift in stratum proportion $|\Delta q| = |q - q_0|$ required to overturn the decision (e.g. from RECOMMEND to INCONCLUSIVE or HOLD). Larger $d^*$ indicates higher robustness.

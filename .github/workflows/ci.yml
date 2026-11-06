@@ -2,11 +2,57 @@ name: CI
 
 on:
   push:
+    branches: [master, main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
-  check:
+  fast-checks:
+    name: Fast Checks & PR Validation (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install dependencies from lockfile
+        run: uv sync --frozen --all-groups
+
+      - name: Lint (Ruff)
+        run: uv run ruff check
+
+      - name: Format check (Ruff)
+        run: uv run ruff format --check
+
+      - name: Type check (Mypy)
+        run: uv run mypy
+
+      - name: Unit & Integration Tests (Fast)
+        run: uv run pytest -m "not statistical"
+
+      - name: Build wheel
+        run: uv build --wheel
+
+      - name: Isolated wheel install & public SDK test
+        run: |
+          uv venv test_env --python ${{ matrix.python-version }}
+          uv pip install --python test_env dist/*.whl
+          test_env/bin/python -c "import reversallab as rl; print('Version:', rl.__version__); assert hasattr(rl, 'BanditDataset')"
+          test_env/bin/reversallab run-example --output runs/ci_quickstart_report.json
+          test_env/bin/python -c "import json; d = json.load(open('runs/ci_quickstart_report.json')); assert d['schema_version'] == '1.0.0'"
+
+  statistical-benchmark:
+    name: Statistical Research Benchmarks (Scheduled & Main)
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')) || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
@@ -19,17 +65,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-groups
 
-      - name: Lint
-        run: uv run ruff check src tests
-
-      - name: Format
-        run: uv run ruff format --check src tests
-
-      - name: Type check
-        run: uv run mypy
-
-      - name: Test
-        run: uv run pytest
-
-      - name: Build wheel
-        run: uv build --wheel
+      - name: Statistical Monte Carlo Tests
+        run: uv run pytest -m "statistical"

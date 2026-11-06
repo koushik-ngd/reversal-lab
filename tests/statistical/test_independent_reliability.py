@@ -9,6 +9,8 @@ import pytest
 from reversallab.experiments.config import load_independent_reliability_config
 from reversallab.experiments.independent_reliability import run_independent_reliability
 
+pytestmark = pytest.mark.statistical
+
 
 @pytest.fixture(scope="module")
 def independent_run_results() -> dict[str, Any]:

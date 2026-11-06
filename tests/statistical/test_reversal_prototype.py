@@ -10,6 +10,8 @@ from reversallab.experiments.config import load_reversal_config
 from reversallab.experiments.reversal_prototype import run_reversal_prototype
 from reversallab.reversal.decision import DecisionOutcome
 
+pytestmark = pytest.mark.statistical
+
 
 @pytest.fixture(scope="module")
 def reversal_run_results() -> dict[str, Any]:
