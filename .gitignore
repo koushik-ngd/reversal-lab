@@ -26,3 +26,4 @@ data/processed/
 .idea/
 .DS_Store
 Thumbs.db
+capacity_validation_report.json
