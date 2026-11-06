@@ -9,4 +9,35 @@ try:
 except PackageNotFoundError:  # pragma: no cover - only when running from an uninstalled tree
     __version__ = "0.0.0+unknown"
 
-__all__ = ["__version__"]
+from reversallab.api import (
+    SDK_SCHEMA_VERSION,
+    BanditDataset,
+    EpsilonGreedyLinearPolicy,
+    LinearSoftmaxPolicy,
+    LoggedBanditData,
+    Policy,
+    PolicyComparison,
+    PolicyComparisonReport,
+    PolicyValueEvaluator,
+    PolicyValueReport,
+    StratumPartition,
+    UniformPolicy,
+    run_quickstart,
+)
+
+__all__ = [
+    "SDK_SCHEMA_VERSION",
+    "BanditDataset",
+    "EpsilonGreedyLinearPolicy",
+    "LinearSoftmaxPolicy",
+    "LoggedBanditData",
+    "Policy",
+    "PolicyComparison",
+    "PolicyComparisonReport",
+    "PolicyValueEvaluator",
+    "PolicyValueReport",
+    "StratumPartition",
+    "UniformPolicy",
+    "__version__",
+    "run_quickstart",
+]

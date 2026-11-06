@@ -256,3 +256,20 @@ def test_run_reversal_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
         "REVERSAL_FOUND",
         "NO_REVERSAL_FOUND_WITHIN_BOUNDS",
     )
+
+
+def test_run_example_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    out_file = tmp_path / "example_report.json"
+    code = main(["run-example", "--output", str(out_file)])
+    assert code == 0
+
+    out = capsys.readouterr().out
+    assert "ReversalLab End-to-End Decision-Reversal Workflow" in out
+    assert "REVERSALLAB DECISION-REVERSAL AUDIT REPORT" in out
+    assert out_file.exists()
+
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "1.0.0"
+    assert "diagnostics" in payload
+    assert "paired_advantage" in payload
+    assert "reversal_search" in payload

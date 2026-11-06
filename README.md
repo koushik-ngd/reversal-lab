@@ -1,113 +1,153 @@
 # ReversalLab
 
-ReversalLab is a Python library for off-policy evaluation of contextual bandits,
-with a planned decision-reversal analysis that is not implemented yet.
+ReversalLab is an open-source Python library for statistically grounded off-policy evaluation (OPE) of contextual bandits, paired policy superiority testing, and decision-reversal robustness analysis.
 
-This version (0.1.0.dev0) estimates the value of a candidate policy from logged
-data using inverse propensity scoring (IPS) and self-normalized IPS (SNIPS).
-It checks those estimators against a synthetic environment whose policy value
-is known up to a reported Monte Carlo error, and against Open Bandit Pipeline's
-IPW and SNIPW on the small Open Bandit sample. IPS and SNIPS are standard
-estimators. They are not a research claim.
+Rather than relying solely on point estimates or standard confidence intervals that collapse under distribution shift, ReversalLab asks:
 
-The question the project is being built to study, and has not yet studied, is
-whether a deployment comparison that looks favorable under ordinary offline
-evaluation remains supported when the evaluation assumptions, the sample
-composition, or declared operational constraints are changed inside a
-pre-specified set. The design is in [`docs/experiment_protocol.md`](docs/experiment_protocol.md).
+> **What is the smallest admissible change in population demographics or evaluation assumptions that reverses an evidence-based deployment decision?**
 
-## Install
+---
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.11 or newer. The pinned
-interpreter for this repository is 3.12 (`.python-version`).
+## Key Capabilities
 
-```text
+- **Standard & Advanced OPE Estimators:** Inverse Propensity Scoring (IPS), Self-Normalized IPS (SNIPS), Direct Method (DM), and Doubly Robust (DR) estimation.
+- **Leakage-Safe K-Fold Cross-Fitting:** Strict out-of-fold reward-model training preventing optimism and target-leakage bias.
+- **Paired Policy Difference Estimation:** Influence-score-based paired comparison $\Delta = V(\pi_e) - V(\pi_b)$ with Wald confidence intervals and operational deployment margins $\delta$.
+- **Multi-Factor Diagnostic Gates:** Evaluates logging propensity overlap ($p_i \ge \tau$ on actively evaluated actions), effective sample size ($\text{ESS}/N \ge 0.05$), and weight concentration ($\max w_i / \sum w_i \le 0.20$) before certifying deployment.
+- **Two-Stratum Decision-Reversal Engine:** Computes the exact minimum demographic shift distance $d^* = |q^* - q_0|$ required to overturn a deployment decision, using analytical root-finding and validated bisection search.
+- **Simultaneous Confidence Bands & Forward Worst-Case Bounds:** Dual validation via $2 \times 95\%$ simultaneous confidence bands and forward worst-case robust mixture evaluation across certified operational envelopes $\mathcal{Q}_\epsilon$.
+- **Ergonomic Python SDK & CLI:** High-level API (`BanditDataset`, `PolicyValueEvaluator`, `PolicyComparison`), schema-versioned JSON report exports (`v1.0.0`), and reproducible CLI commands.
+
+---
+
+## Installation
+
+ReversalLab requires Python 3.11+ (recommended: Python 3.12 pinned via [uv](https://docs.astral.sh/uv/)).
+
+```bash
+# Clone the repository
+git clone https://github.com/reversallab/reversal-lab.git
+cd reversal-lab
+
+# Install dependencies using uv
 uv sync --frozen --all-groups
 ```
 
-## Test and check
+To build and install the standalone wheel:
 
-```text
-uv run pytest
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv run mypy
+```bash
+uv build --wheel
+pip install dist/reversallab-0.1.0.dev0-py3-none-any.whl
 ```
 
-`pytest` includes the Monte Carlo tests in `tests/statistical/`. They use fixed
-seeds. On a recent laptop the full suite takes a few minutes, dominated by
-those tests.
+---
 
-`make check` runs the same steps where GNU make is available. The `uv` commands
-are the ones that work in any shell, including PowerShell.
+## Quickstart
 
-## Reproduce the baseline experiment
+Run the complete end-to-end decision-reversal workflow in one command:
 
-```text
-uv run reversallab validate-estimators --config configs/experiments/001_estimator_validation.yaml
+```bash
+uv run reversallab run-example --output runs/quickstart_report.json
+```
+
+Or use the Python SDK directly:
+
+```python
+import numpy as np
+import reversallab as rl
+
+# 1. Load or synthesize validated logged bandit data
+dataset = rl.BanditDataset.from_arrays(
+    contexts=np.random.randn(1000, 2),
+    actions=np.random.randint(0, 3, size=1000),
+    rewards=np.random.randn(1000),
+    propensities=np.full(1000, 1.0 / 3.0),
+    n_actions=3,
+)
+
+# 2. Define baseline and candidate policies
+baseline = rl.UniformPolicy(n_actions=3)
+candidate = rl.LinearSoftmaxPolicy(
+    weights=np.random.randn(2, 3),
+    inverse_temperature=1.0,
+)
+
+# 3. Evaluate paired advantage and decision robustness
+report = rl.PolicyComparison.evaluate(
+    dataset=dataset,
+    candidate_policy=candidate,
+    baseline_policy=baseline,
+    estimator="dr",
+    margin=0.02,          # Minimum deployment advantage required (+2%)
+    deploy_epsilon=0.10,  # Certified demographic envelope [q0 - 0.10, q0 + 0.10]
+    max_epsilon=0.40,     # Maximum search radius
+    cross_fitting_folds=3,
+)
+
+# 4. Inspect ASCII audit report and export JSON
+print(report.summary())
+report.save("runs/decision_audit.json")
+```
+
+For a comprehensive guide, see [`docs/quickstart.md`](docs/quickstart.md).
+
+---
+
+## Testing & Quality Verification
+
+ReversalLab maintains strict type-checking, code styling, and statistical test coverage:
+
+```bash
+uv run pytest
+uv run ruff check src tests examples
+uv run ruff format --check src tests examples
+uv run mypy src tests examples
+```
+
+---
+
+## Reproducible Research Experiments
+
+ReversalLab was developed through seven rigorously audited empirical milestones:
+
+| Experiment | Title | Description | Reproduction Command |
+|---|---|---|---|
+| **001** | Estimator Validation | Finite-sample bias, variance, and MSE of IPS and SNIPS across sample sizes. | `uv run reversallab validate-estimators --config configs/experiments/001_estimator_validation.yaml` |
+| **002** | Reference Parity | Numerical parity comparison against Open Bandit Pipeline (OBP) reference estimators. | `uv run reversallab compare-reference --config configs/experiments/002_open_bandit_parity.yaml` |
+| **003** | Advanced Estimators | DM and DR evaluation with leakage-safe K-fold cross-fitting and misspecification tests. | `uv run reversallab validate-estimators --config configs/experiments/003_advanced_estimators.yaml` |
+| **004** | Uncertainty Calibration | Coverage and reliability audit of Wald intervals, influence scores, and bootstrap resamples. | `uv run reversallab validate-estimators --config configs/experiments/004_uncertainty_calibration.yaml` |
+| **005** | Decision-Reversal Prototype | Prototype 1-D context mixture perturbation search and margin-crossing detection. | `uv run reversallab run-reversal --config configs/experiments/005_reversal_prototype.yaml` |
+| **006** | Mathematical Validation | Analytical reversal root-finding and simultaneous confidence band certification. | `uv run reversallab run-reversal --config configs/experiments/006_reversal_validation.yaml` |
+| **007** | Independent Reliability | 5,000 Monte Carlo replications comparing inverse reversal distance and forward robust baselines. | `uv run reversallab run-reversal --config configs/experiments/007_independent_reliability.yaml` |
+
+To inspect any generated run artifact:
+
+```bash
 uv run reversallab report --run-dir runs/<run_id>
 ```
 
-The run directory is printed at the end of the first command. It contains
-`run.json` with the config, both SHA-256 hashes, estimates, diagnostic rates,
-warnings, runtime, and the Python environment. The measured summary is written
-up in [`experiments/001_estimator_validation/README.md`](experiments/001_estimator_validation/README.md)
-for the revision that produced it. Re-running the command is the check.
+---
 
-## Compare IPS and SNIPS with Open Bandit Pipeline
+## Documentation
 
-```text
-uv run reversallab compare-reference --config configs/experiments/002_open_bandit_parity.yaml
-```
+- [`docs/quickstart.md`](docs/quickstart.md): Step-by-step tutorial for practitioners and engineers.
+- [`docs/architecture.md`](docs/architecture.md): System layout, public SDK contracts, and data-flow diagrams.
+- [`docs/decision_reliability_audit.md`](docs/decision_reliability_audit.md): Complete mathematical and empirical closeout audit of Experiment 007.
+- [`docs/methodology.md`](docs/methodology.md): Formal definitions of estimators, influence scores, and mixture perturbations.
+- [`docs/data_contract.md`](docs/data_contract.md): Field-by-field array contracts and validation rules.
+- [`docs/assumptions.md`](docs/assumptions.md): Supported statistical claims vs. deliberate limitations.
 
-This reads the 10,000-row sample from a local `st-tech/zr-obp` checkout at
-`data/raw/zr-obp`. It does not download the full dataset. The estimand, the
-file audit, and the recorded comparison are in
-[`docs/open_bandit_estimand.md`](docs/open_bandit_estimand.md),
-[`docs/open_bandit_data_audit.md`](docs/open_bandit_data_audit.md), and
-[`experiments/002_open_bandit_parity/README.md`](experiments/002_open_bandit_parity/README.md).
+---
 
-`reversallab --help` lists `validate-estimators`, `compare-reference`, and
-`report`.
+## Scientific Scope & Limitations
 
-## Layout
+ReversalLab provides mathematical guarantees under declared assumptions:
+- **Supported:** Asymptotically valid paired difference confidence intervals via Doubly Robust estimation with K-fold cross-fitting, under unconfoundedness, positive propensity support, and correctly specified logging probabilities.
+- **Supported:** Exact boundary minima for forward worst-case bounds under 1-D mixture perturbations due to concavity of the lower confidence bound.
+- **Equivalence Note:** In 1-D two-stratum mixture shifts, inverse reversal thresholding and forward robust-value checks yield identical binary deployment decisions at budget $\epsilon_{\text{deploy}}$. Interpretability advantages of distance reporting are proposed conceptual benefits, not experimentally established user advantages.
+- **Limitations:** Does not establish safety against unobserved confounding, continuous non-parametric density drift, or multidimensional demographic shifts beyond the evaluated partition.
 
-```text
-src/reversallab/
-  contracts/      LoggedBanditData and array validation
-  data/           synthetic bandit, Open Bandit small-sample adapter
-  policies/       uniform, linear softmax, linear epsilon-greedy
-  evaluation/     importance weights, IPS, SNIPS, diagnostics, OBP bridge
-  experiments/    config, Monte Carlo runner, reference parity, provenance
-  cli.py
-configs/experiments/001_estimator_validation.yaml
-docs/             architecture, methodology, data contract, protocol,
-                  assumptions, limitations, Open Bandit audit and estimand
-tests/            unit, statistical, integration
-```
-
-Direct Method, Doubly Robust, the reversal search, a service, and containers
-are not in this tree. The small Open Bandit sample is. The full log is not.
-The reasons and the entry conditions for the next milestone are in
-[`docs/limitations.md`](docs/limitations.md).
-
-## Mathematical scope
-
-For logged tuples \((x_i, a_i, r_i, p_i)\) and \(w_i = \pi_e(a_i \mid x_i) / p_i\),
-
-\[
-\hat V_{\mathrm{IPS}} = \frac{1}{N}\sum_i w_i r_i, \qquad
-\hat V_{\mathrm{SNIPS}} = \frac{\sum_i w_i r_i}{\sum_i w_i}.
-\]
-
-IPS is unbiased when the rows are i.i.d., the propensities are the true logging
-probabilities, and \(\pi_e(a \mid x) > 0\) implies \(\pi_0(a \mid x) > 0\).
-SNIPS is consistent under those conditions and undefined when the total weight
-is zero. Intervals are normal approximations. Full definitions, diagnostics,
-and the synthetic data law are in [`docs/methodology.md`](docs/methodology.md).
-Field-by-field validation is in [`docs/data_contract.md`](docs/data_contract.md).
-
-Zero propensities and overflowing weights are errors. They are not clipped.
+---
 
 ## License
 

@@ -539,6 +539,13 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run_example(args: argparse.Namespace) -> int:
+    from reversallab.api import run_quickstart
+
+    run_quickstart(args.output)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="reversallab",
@@ -713,6 +720,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rep.add_argument("--run-dir", required=True, help="Run directory containing run.json.")
     p_rep.set_defaults(func=_cmd_report)
+
+    p_ex = sub.add_parser(
+        "run-example",
+        help="Run the end-to-end quickstart decision-reversal workflow example.",
+        description=(
+            "Generates synthetic logged data, estimates paired policy advantage, "
+            "evaluates diagnostic gates, and audits decision reversal."
+        ),
+    )
+    p_ex.add_argument(
+        "--output",
+        default="runs/quickstart_report.json",
+        help="Path to export the structured JSON report.",
+    )
+    p_ex.set_defaults(func=_cmd_run_example)
 
     return parser
 
