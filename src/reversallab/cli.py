@@ -20,12 +20,14 @@ from reversallab.experiments.advanced_estimators import run_advanced_estimator_v
 from reversallab.experiments.config import (
     load_advanced_config,
     load_config,
+    load_independent_reliability_config,
     load_parity_config,
     load_reliability_config,
     load_reversal_config,
     load_uncertainty_config,
 )
 from reversallab.experiments.estimator_validation import run_estimator_validation
+from reversallab.experiments.independent_reliability import run_independent_reliability
 from reversallab.experiments.metadata import load_run, to_jsonable, write_run
 from reversallab.experiments.open_bandit_parity import run_open_bandit_parity
 from reversallab.experiments.reversal_prototype import run_reversal_prototype
@@ -46,6 +48,8 @@ def format_report(run: dict[str, Any]) -> str:
         return _format_parity_report(run)
     if isinstance(results, dict) and "scenarios" in results:
         scs = results["scenarios"]
+        if scs and "method_d_f_duality_validation" in scs[0]:
+            return _format_independent_reliability_report(run)
         if scs and "reversal_search_validation" in scs[0]:
             return _format_reliability_report(run)
         if scs and "reversal_search" in scs[0]:
@@ -148,6 +152,56 @@ def _format_reversal_report(run: dict[str, Any]) -> str:
             f"{ci_str:^17}  {dec['naive_point_estimate']:<9}"
             f"{dec['baseline_confidence_bound']:<13}"
             f"{d_rev_str:>8}  {rev['status']:<20}"
+        )
+        lines.append(row)
+    if run["warnings"]:
+        lines += ["", "Warnings:"] + [f"  - {w}" for w in run["warnings"]]
+    lines += ["", f"Reproduce: {run['reproduction_command']}"]
+    return "\n".join(lines)
+
+
+def _format_independent_reliability_report(run: dict[str, Any]) -> str:
+    lines = [
+        f"Run:      {run['run_id']}",
+        (
+            f"Config:   sha256 {run['config_sha256'][:12]}  seed={run['config']['seed']}  "
+            f"replications={run['config'].get('n_replications', 500)}  "
+            f"deploy_eps={run['config'].get('deploy_threshold_epsilon', 0.10)}"
+        ),
+        f"Results:  sha256 {run['results_sha256'][:12]}",
+        f"Git:      {run['provenance']['git']}",
+        "",
+    ]
+    header = (
+        f"{'scenario':<28}{'N':>5}  {'margin':>6}  {'true Delta':>10} {'worst Delta':>11}  "
+        f"{'Rec A':>6} {'Rec B':>6} {'Rec C':>6} {'Rec D':>6} {'Rec E':>6} {'Rec F':>6}  "
+        f"{'SimCov':>7} {'PWCov':>6} {'D-F Equiv':>9}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    for sc in run["results"]["scenarios"]:
+        gt = sc["ground_truth"]
+        m = sc["methods"]
+        cov = sc["simultaneous_inference_validation"]
+        duality = sc["method_d_f_duality_validation"]
+        rec_a = f"{m['method_a_point_estimate']['recommend_rate'] * 100:.1f}%"
+        rec_b = f"{m['method_b_baseline_ci']['recommend_rate'] * 100:.1f}%"
+        rec_c = f"{m['method_c_worst_stratum']['recommend_rate'] * 100:.1f}%"
+        rec_d = f"{m['method_d_pointwise_reversal']['recommend_rate'] * 100:.1f}%"
+        rec_e = f"{m['method_e_simultaneous_band']['recommend_rate'] * 100:.1f}%"
+        rec_f = f"{m['method_f_robust_mixture']['recommend_rate'] * 100:.1f}%"
+        sim_cov = f"{cov['simultaneous_interval_coverage'] * 100:.1f}%"
+        pw_cov = f"{cov['pointwise_coverage_at_q0'] * 100:.1f}%"
+        equiv = (
+            "YES"
+            if duality["exact_decision_equivalence"]
+            else f"{duality['agreement_rate'] * 100:.1f}%"
+        )
+        row = (
+            f"{sc['scenario']:<28}{sc['n_samples']:>5}  {sc['margin']:>6.3f}  "
+            f"{gt['true_delta']:>+10.4f} {gt['worst_true_delta_deploy']:>+11.4f}  "
+            f"{rec_a:>6} {rec_b:>6} {rec_c:>6} {rec_d:>6} {rec_e:>6} {rec_f:>6}  "
+            f"{sim_cov:>7} {pw_cov:>6} {equiv:>9}"
         )
         lines.append(row)
     if run["warnings"]:
@@ -436,6 +490,46 @@ def _cmd_run_reliability(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_run_independent_reliability(args: argparse.Namespace) -> int:
+    config = load_independent_reliability_config(args.config)
+    overrides: dict[str, Any] = {}
+    if args.seed is not None:
+        overrides["seed"] = args.seed
+    if args.n_replications is not None:
+        overrides["n_replications"] = args.n_replications
+    if overrides:
+        try:
+            config = type(config).model_validate({**config.model_dump(), **overrides})
+        except ValidationError as exc:
+            raise ConfigurationError(f"Invalid CLI argument overrides:\n{exc}") from exc
+    config_dict = to_jsonable(config.model_dump(mode="json"))
+    logger.info(
+        "experiment=%s seed=%d replications=%d scenarios=%d",
+        config.name,
+        config.seed,
+        config.n_replications,
+        len(config.scenarios),
+    )
+    output = run_independent_reliability(config)
+    command = f"reversallab run-independent-reliability --config {Path(args.config).as_posix()}"
+    if args.seed is not None:
+        command += f" --seed {args.seed}"
+    if args.n_replications is not None:
+        command += f" --n-replications {args.n_replications}"
+    run_dir = write_run(
+        Path(args.output_dir),
+        name=config.name,
+        config=config_dict,
+        results=output.results,
+        warnings=output.warnings,
+        runtime=output.runtime,
+        reproduction_command=command,
+    )
+    print(format_report(load_run(run_dir)))
+    print(f"\nWrote {run_dir / 'run.json'}")
+    return 0
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     try:
         run = load_run(Path(args.run_dir))
@@ -586,6 +680,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rel.set_defaults(func=_cmd_run_reliability)
 
+    p_ind = sub.add_parser(
+        "run-independent-reliability",
+        help="Run independent reliability evaluation benchmark (experiment 007, M4C).",
+        description=(
+            "Preregistered Monte Carlo benchmark comparing 6 decision methods (A-F), "
+            "evaluating simultaneous coverage, false recommendation rates, and duality."
+        ),
+    )
+    p_ind.add_argument("--config", required=True, help="Path to an experiment YAML file.")
+    p_ind.add_argument(
+        "--output-dir", default="runs", help="Directory in which a new run directory is created."
+    )
+    p_ind.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override the configured random seed.",
+    )
+    p_ind.add_argument(
+        "--n-replications",
+        type=int,
+        default=None,
+        help="Override the configured number of replications.",
+    )
+    p_ind.set_defaults(func=_cmd_run_independent_reliability)
+
     p_rep = sub.add_parser(
         "report",
         help="Print the summary of an existing run.",
@@ -593,6 +713,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rep.add_argument("--run-dir", required=True, help="Run directory containing run.json.")
     p_rep.set_defaults(func=_cmd_report)
+
     return parser
 
 

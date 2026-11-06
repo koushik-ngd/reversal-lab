@@ -24,6 +24,10 @@ from reversallab.reversal.paired import (
     compute_paired_difference_scores,
     evaluate_paired_difference,
 )
+from reversallab.reversal.robust_mixture import (
+    RobustMixtureResult,
+    evaluate_robust_mixture_baseline,
+)
 from reversallab.reversal.search import (
     ReversalSearchResult,
     bisect_decision_boundary,
@@ -55,6 +59,7 @@ __all__ = [
     "PairedDifferenceResult",
     "ReversalSearchResult",
     "ReversalTaxonomyReport",
+    "RobustMixtureResult",
     "SimultaneousBandResult",
     "SimultaneousReversalResult",
     "StratumPartition",
@@ -69,6 +74,7 @@ __all__ = [
     "evaluate_decision_from_paired_result",
     "evaluate_diagnostic_gate",
     "evaluate_paired_difference",
+    "evaluate_robust_mixture_baseline",
     "find_analytical_decision_reversal",
     "find_decision_reversal",
     "solve_quadratic_crossing_roots",
