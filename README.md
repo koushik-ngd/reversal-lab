@@ -33,11 +33,18 @@ cd reversal-lab
 uv sync --frozen --all-groups
 ```
 
-To build and install the standalone wheel:
+To build and install the standalone wheel into an isolated environment using `uv`:
 
 ```bash
+# Build pure Python wheel
 uv build --wheel
-pip install dist/reversallab-0.1.0.dev0-py3-none-any.whl
+
+# Create an isolated environment and install wheel via uv
+uv venv .smoke_env
+uv pip install --python .smoke_env dist/reversallab-0.1.0.dev0-py3-none-any.whl
+
+# Verify execution in the isolated environment
+uv run --no-project --python .smoke_env python -m reversallab.cli run-example --output .smoke_env/report.json
 ```
 
 ---

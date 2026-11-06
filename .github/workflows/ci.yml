@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   fast-checks:
     name: Fast Checks & PR Validation (Python ${{ matrix.python-version }})

@@ -156,7 +156,7 @@ Policy Margin:   delta = 0.0200 (Confidence level: 95%)
 ### The Three Decision Rules
 - **RECOMMEND**: The lower 95% confidence bound strictly exceeds the operational margin $\delta$. Candidate deployment is statistically justified.
 - **HOLD**: The upper 95% confidence bound is strictly below $\delta$. The candidate reliably fails to beat the margin.
-- **INCONCLUSIVE**: The confidence interval covers $\delta$, or the multi-factor diagnostic gate failed (e.g., active logging propensity deficit $0 < p_i < \tau$ or ESS collapse). Low but positive logging propensities are not mathematical support violations (since $p_i > 0$), but cause severe finite-sample variance inflation that invalidates asymptotic normal intervals. Conservative deferral to `INCONCLUSIVE` protects against premature deployment under unstable variance.
+- **INCONCLUSIVE**: The confidence interval covers $\delta$, or the multi-factor diagnostic gate failed (e.g., active logging propensity deficit $0 < p_i < \tau$ on an actively selected action, or ESS collapse). A small positive logging propensity $p_i > 0$ is not a mathematical support violation, nor does it inherently imply huge importance weights ($w_i = \pi(a_i \mid x_i) / p_i$ is 0 if $\pi(a_i \mid x_i) = 0$, and remains moderate if $\pi(a_i \mid x_i) \approx p_i$). However, when an evaluation policy actively assigns non-negligible probability mass to a rarely logged action ($\pi(a_i \mid x_i) \gg p_i$), importance weights explode, inducing severe finite-sample variance that invalidates asymptotic normal Wald confidence intervals. Conservative deferral to `INCONCLUSIVE` protects against premature deployment under unstable variance.
 
 ### Inverse Reversal Distance vs. Forward Worst-Case
 - **Inverse Reversal Distance ($d^*$):** The minimum shift in stratum proportion $|\Delta q| = |q - q_0|$ required to overturn the decision (e.g. from RECOMMEND to INCONCLUSIVE or HOLD). Larger $d^*$ indicates higher robustness.
@@ -174,3 +174,24 @@ Policy Margin:   delta = 0.0200 (Confidence level: 95%)
 | `compare-reference` | Check parity against Open Bandit Pipeline | `uv run reversallab compare-reference --config configs/experiments/002_open_bandit_parity.yaml` |
 | `run-reversal` | Run batch synthetic reversal experiment | `uv run reversallab run-reversal --config configs/experiments/005_reversal_prototype.yaml` |
 | `report` | Format and display saved `run.json` artifact | `uv run reversallab report --run-dir runs/<run_id>` |
+
+---
+
+## 5. Standalone Wheel Installation with `uv`
+
+ReversalLab can be built and installed as a standalone Python wheel across Linux, macOS, and Windows using `uv`'s native package management:
+
+```bash
+# 1. Build the standalone pure Python wheel
+uv build --wheel
+
+# 2. Create an isolated virtual environment
+uv venv .smoke_env
+
+# 3. Install the built wheel into the isolated virtual environment via uv
+uv pip install --python .smoke_env dist/reversallab-0.1.0.dev0-py3-none-any.whl
+
+# 4. Verify public SDK import and CLI execution
+uv run --no-project --python .smoke_env python -c "import reversallab as rl; print(rl.__version__)"
+uv run --no-project --python .smoke_env python -m reversallab.cli run-example --output .smoke_env/report.json
+```
