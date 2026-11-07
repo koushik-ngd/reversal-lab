@@ -14,15 +14,27 @@ import numpy as np
 
 from reversallab.api import BanditDataset, PolicyComparison, StratumPartition
 from reversallab.service.app import _build_policy
+from reversallab.service.job_models import JobStatus
 from reversallab.service.job_repository import JobRepository
 from reversallab.service.schemas import PolicyComparisonRequest
 
 
 def execute_job(job_id: str, input_path: Path, result_path: Path, db_path: Path) -> int:
-    """Execute evaluation job isolated in this dedicated child process."""
+    """Execute evaluation job isolated in this dedicated child process.
+
+    Returns:
+        0: Job completed successfully and was committed to SQLite.
+        1: Job failed with an unhandled exception or data error.
+        2: Job execution was fenced/aborted because cancellation was requested.
+    """
     repo = JobRepository(db_path)
 
     try:
+        # Pre-execution fence: ensure job is still valid and not canceled
+        rec = repo.get_job(job_id)
+        if rec is None or rec.status != JobStatus.RUNNING or rec.cancel_requested:
+            return 2
+
         if not input_path.exists():
             repo.mark_failed(job_id, "INPUT_FILE_NOT_FOUND", f"Input file missing: {input_path}")
             return 1
@@ -74,6 +86,11 @@ def execute_job(job_id: str, input_path: Path, result_path: Path, db_path: Path)
 
         result_data = report.to_dict()
 
+        # Post-computation fence: check cancellation before disk/db commit
+        rec = repo.get_job(job_id)
+        if rec is None or rec.status != JobStatus.RUNNING or rec.cancel_requested:
+            return 2
+
         # Atomic write of result JSON
         tmp_dir = result_path.parent.parent / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -95,12 +112,20 @@ def execute_job(job_id: str, input_path: Path, result_path: Path, db_path: Path)
 
         tmp_path.replace(result_path)
 
-        # Mark completed in DB
-        repo.mark_completed(job_id)
+        # Mark completed in DB atomically (checks cancel_requested == 0)
+        completed = repo.mark_completed(job_id)
+        if not completed:
+            # Cancellation was requested right as output was replaced
+            with contextlib.suppress(OSError):
+                result_path.unlink()
+            return 2
+
         return 0
 
     except Exception as exc:
-        repo.mark_failed(job_id, type(exc).__name__, str(exc))
+        rec = repo.get_job(job_id)
+        if rec and not rec.cancel_requested and rec.status == JobStatus.RUNNING:
+            repo.mark_failed(job_id, type(exc).__name__, str(exc))
         return 1
 
 

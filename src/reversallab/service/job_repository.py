@@ -112,6 +112,59 @@ class JobRepository:
                 ),
             )
 
+    def insert_or_get_active(self, job: JobRecord) -> tuple[JobRecord, bool]:
+        """Atomically insert job if no active job exists with the same payload_hash.
+
+        Returns (record, inserted). If an active job already exists, returns (existing, False).
+        Uses an immediate transaction to eliminate race conditions between concurrent submissions.
+        """
+        with self._connection() as conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            try:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM jobs
+                    WHERE payload_hash = ? AND status IN ('PENDING', 'RUNNING', 'COMPLETED')
+                    ORDER BY created_at DESC
+                    LIMIT 1;
+                    """,
+                    (job.payload_hash,),
+                )
+                row = cursor.fetchone()
+                if row is not None:
+                    conn.commit()
+                    return self._row_to_record(row), False
+
+                conn.execute(
+                    """
+                    INSERT INTO jobs (
+                        job_id, created_at, started_at, completed_at, status,
+                        attempt_count, payload_hash, input_path, result_path,
+                        error_code, error_message, cancel_requested, worker_pid
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        job.job_id,
+                        job.created_at,
+                        job.started_at,
+                        job.completed_at,
+                        job.status.value,
+                        job.attempt_count,
+                        job.payload_hash,
+                        job.input_path,
+                        job.result_path,
+                        job.error_code,
+                        job.error_message,
+                        1 if job.cancel_requested else 0,
+                        job.worker_pid,
+                    ),
+                )
+                conn.commit()
+                return job, True
+            except Exception:
+                conn.rollback()
+                raise
+
     def get_job(self, job_id: str) -> JobRecord | None:
         """Retrieve a job by its unique identifier."""
         with self._connection() as conn:
@@ -185,30 +238,61 @@ class JobRepository:
                 return None
             return self._row_to_record(updated_row)
 
+    def update_worker_pid(self, job_id: str, worker_pid: int) -> bool:
+        """Update the OS worker_pid associated with a RUNNING job."""
+        with self._connection() as conn, conn:
+            cur = conn.execute(
+                """
+                UPDATE jobs
+                SET worker_pid = ?
+                WHERE job_id = ? AND status = 'RUNNING';
+                """,
+                (worker_pid, job_id),
+            )
+            return cur.rowcount > 0
+
+    def get_orphaned_running_jobs(self) -> list[JobRecord]:
+        """Retrieve all job records currently marked as RUNNING."""
+        with self._connection() as conn:
+            cursor = conn.execute("SELECT * FROM jobs WHERE status = 'RUNNING';")
+            return [self._row_to_record(row) for row in cursor.fetchall()]
+
     def mark_completed(self, job_id: str) -> bool:
-        """Mark a RUNNING job as COMPLETED upon successful output write."""
+        """Mark a RUNNING job as COMPLETED upon successful output write.
+
+        Fails atomically if cancellation has been requested, preventing stale completion.
+        """
         now = _utc_now_iso()
         with self._connection() as conn, conn:
             cur = conn.execute(
                 """
-                    UPDATE jobs
-                    SET status = 'COMPLETED', completed_at = ?
-                    WHERE job_id = ? AND status = 'RUNNING';
-                    """,
+                UPDATE jobs
+                SET status = 'COMPLETED', completed_at = ?
+                WHERE job_id = ? AND status = 'RUNNING' AND cancel_requested = 0;
+                """,
                 (now, job_id),
             )
             return cur.rowcount > 0
 
     def mark_failed(self, job_id: str, error_code: str, error_message: str) -> bool:
-        """Mark a job as FAILED with diagnostic details."""
+        """Mark a job as FAILED with diagnostic details.
+
+        Only transitions from PENDING or RUNNING, unless error_code is RESULT_READ_FAILED
+        or RESULT_EXPIRED (recovering corrupted/purged output files).
+        """
         now = _utc_now_iso()
         with self._connection() as conn, conn:
+            if error_code in ("RESULT_READ_FAILED", "RESULT_EXPIRED"):
+                status_filter = "status IN ('PENDING', 'RUNNING', 'COMPLETED')"
+            else:
+                status_filter = "status IN ('PENDING', 'RUNNING')"
+
             cur = conn.execute(
-                """
-                    UPDATE jobs
-                    SET status = 'FAILED', completed_at = ?, error_code = ?, error_message = ?
-                    WHERE job_id = ? AND status IN ('PENDING', 'RUNNING');
-                    """,
+                f"""
+                UPDATE jobs
+                SET status = 'FAILED', completed_at = ?, error_code = ?, error_message = ?
+                WHERE job_id = ? AND {status_filter};
+                """,
                 (now, error_code, error_message, job_id),
             )
             return cur.rowcount > 0
@@ -253,15 +337,18 @@ class JobRepository:
             return False, rec
 
     def mark_canceled(self, job_id: str) -> bool:
-        """Transition a job to CANCELED status after verified worker process termination."""
+        """Transition a job to CANCELED status after verified worker process termination.
+
+        Terminal states (COMPLETED, FAILED) are immutable and cannot be overwritten.
+        """
         now = _utc_now_iso()
         with self._connection() as conn, conn:
             cur = conn.execute(
                 """
-                    UPDATE jobs
-                    SET status = 'CANCELED', completed_at = ?
-                    WHERE job_id = ?;
-                    """,
+                UPDATE jobs
+                SET status = 'CANCELED', completed_at = ?
+                WHERE job_id = ? AND status IN ('PENDING', 'RUNNING');
+                """,
                 (now, job_id),
             )
             return cur.rowcount > 0

@@ -147,13 +147,20 @@ class JobStorageManager:
                     p.unlink()
 
     def purge_expired_files(self, max_age_seconds: float = 86400.0) -> int:
-        """Delete files older than max_age_seconds from inputs and results directories."""
+        """Delete files older than max_age_seconds and prune stale staging files."""
         now = time.time()
         purged = 0
-        for d in (self.inputs_dir, self.results_dir, self.tmp_dir):
+        for d in (self.inputs_dir, self.results_dir):
             for p in d.glob("*"):
                 if p.is_file() and now - p.stat().st_mtime > max_age_seconds:
                     with contextlib.suppress(OSError):
                         p.unlink()
                         purged += 1
+
+        # Aggressively prune orphaned staging files in tmp directory older than 30 minutes
+        for p in self.tmp_dir.glob("*.tmp"):
+            if p.is_file() and now - p.stat().st_mtime > 1800.0:
+                with contextlib.suppress(OSError):
+                    p.unlink()
+                    purged += 1
         return purged

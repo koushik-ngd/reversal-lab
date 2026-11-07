@@ -97,6 +97,41 @@ class JobSupervisor:
         self._active_processes: dict[str, tuple[subprocess.Popen[bytes], float]] = {}
         self._last_purge_time = 0.0
 
+    def _safe_terminate_orphan_pid(self, pid: int, job_id: str) -> None:
+        """Safely verify and terminate an orphaned worker process from a supervisor crash."""
+        if pid <= 0:
+            return
+        try:
+            is_worker = False
+            if sys.platform != "win32":
+                proc_cmd = Path(f"/proc/{pid}/cmdline")
+                if proc_cmd.exists():
+                    cmd = proc_cmd.read_text(encoding="utf-8", errors="ignore")
+                    if "reversallab.service.worker" in cmd and job_id in cmd:
+                        is_worker = True
+            else:
+                try:
+                    import psutil  # type: ignore[import-untyped]
+
+                    p = psutil.Process(pid)
+                    cmd_str = " ".join(p.cmdline())
+                    if "reversallab.service.worker" in cmd_str and job_id in cmd_str:
+                        is_worker = True
+                except Exception:
+                    pass
+
+            if is_worker:
+                logger.info("Terminating orphaned worker process PID %d for job %s", pid, job_id)
+                if sys.platform == "win32":
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)],
+                        capture_output=True,
+                    )
+                else:
+                    os.kill(pid, 15)  # SIGTERM
+        except Exception as exc:
+            logger.debug("Could not terminate orphaned PID %d: %s", pid, exc)
+
     def start(self) -> bool:
         """Attempt to acquire supervisor leadership and launch background polling thread."""
         if not self.lock.acquire():
@@ -106,6 +141,15 @@ class JobSupervisor:
 
         self.is_leader = True
         logger.info("Supervisor leader lock acquired. Recovering orphaned jobs...")
+
+        # Terminate any zombie child worker processes left running by prior leader crash
+        try:
+            orphans = self.repo.get_orphaned_running_jobs()
+            for orphan in orphans:
+                if orphan.worker_pid and orphan.worker_pid > 0:
+                    self._safe_terminate_orphan_pid(orphan.worker_pid, orphan.job_id)
+        except Exception as exc:
+            logger.debug("Error inspecting orphaned worker processes: %s", exc)
 
         # Recover any jobs left in RUNNING by previous crash/restart
         recovered = self.repo.recover_orphaned_jobs()
@@ -129,11 +173,13 @@ class JobSupervisor:
         # Terminate any remaining child processes
         for job_id, (proc, _) in list(self._active_processes.items()):
             self._terminate_process(proc)
-            self.repo.mark_failed(
-                job_id,
-                "SUPERVISOR_SHUTDOWN",
-                "Job was terminated due to server shutdown.",
-            )
+            rec = self.repo.get_job(job_id)
+            if rec and rec.status != JobStatus.COMPLETED:
+                self.repo.mark_failed(
+                    job_id,
+                    "SUPERVISOR_SHUTDOWN",
+                    "Job was terminated due to server shutdown.",
+                )
 
         self._active_processes.clear()
         self.lock.release()
@@ -152,6 +198,7 @@ class JobSupervisor:
 
         if rec.status == JobStatus.CANCELED:
             # Was PENDING, already canceled directly
+            self.storage.delete_job_files(job_id)
             return True
 
         # If it is running locally in our active processes
@@ -162,6 +209,10 @@ class JobSupervisor:
             self.storage.delete_job_files(job_id)
             return True
 
+        if rec.worker_pid and rec.worker_pid > 0:
+            self._safe_terminate_orphan_pid(rec.worker_pid, job_id)
+        self.repo.mark_canceled(job_id)
+        self.storage.delete_job_files(job_id)
         return True
 
     def _terminate_process(self, proc: subprocess.Popen[bytes]) -> None:
@@ -198,6 +249,10 @@ class JobSupervisor:
                 rec = self.repo.get_job(job_id)
 
                 if rec and rec.cancel_requested:
+                    self.repo.mark_canceled(job_id)
+                    self.storage.delete_job_files(job_id)
+                elif ret == 2:
+                    # Worker exited with code 2 due to pre/post-commit cancellation fence
                     self.repo.mark_canceled(job_id)
                     self.storage.delete_job_files(job_id)
                 elif ret != 0:
@@ -271,6 +326,7 @@ class JobSupervisor:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+                self.repo.update_worker_pid(job_id, proc.pid)
                 self._active_processes[job_id] = (proc, time.time())
             except Exception as exc:
                 self.repo.mark_failed(

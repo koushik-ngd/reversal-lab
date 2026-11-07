@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import sqlite3
 import sys
 import time
 import uuid
@@ -295,6 +296,37 @@ def create_app(
             headers={"x-request-id": request_id},
         )
 
+    @app.exception_handler(sqlite3.OperationalError)
+    async def sqlite_operational_handler(
+        request: Request, exc: sqlite3.OperationalError
+    ) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", "unknown")
+        if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "type": "https://reversallab.org/errors/database-locked",
+                    "title": "Service Unavailable",
+                    "status": 503,
+                    "detail": "Database is temporarily busy. Retry with exponential backoff.",
+                    "instance": request.url.path,
+                    "request_id": request_id,
+                },
+                headers={"x-request-id": request_id, "Retry-After": "1"},
+            )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "type": "https://reversallab.org/errors/database-error",
+                "title": "Database Error",
+                "status": 500,
+                "detail": f"Database operation failed: {exc}",
+                "instance": request.url.path,
+                "request_id": request_id,
+            },
+            headers={"x-request-id": request_id},
+        )
+
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         request_id = getattr(request.state, "request_id", "unknown")
@@ -518,12 +550,26 @@ def create_app(
                 headers={"x-request-id": request_id},
             )
 
-        # Idempotency via canonical payload hash
+        # Idempotency via canonical payload hash (RFC 8785 canonical JSON sorting & separators)
         payload_dict = req.model_dump()
-        payload_bytes = json.dumps(payload_dict, sort_keys=True).encode("utf-8")
+        payload_bytes = json.dumps(payload_dict, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
         payload_hash = hashlib.sha256(payload_bytes).hexdigest()
 
         existing = repo.find_active_by_payload_hash(payload_hash)
+        if (
+            existing is not None
+            and existing.status == JobStatus.COMPLETED
+            and not storage.get_result_path(existing.job_id).exists()
+        ):
+            repo.mark_failed(
+                existing.job_id,
+                "RESULT_EXPIRED",
+                "Completed result file has expired or was removed from persistent storage.",
+            )
+            existing = None
+
         if existing is not None:
             job_url = f"/v1/jobs/{existing.job_id}"
             response.headers["Location"] = job_url
@@ -534,7 +580,7 @@ def create_app(
                 links=JobLinks(self=job_url, cancel=job_url),
             )
 
-        # Create new job
+        # Create new job with atomic reservation and rollback on storage/db failure
         job_id = str(uuid.uuid4())
         input_path = storage.write_input(job_id, payload_dict, MAX_STORAGE_BYTES)
         result_path = storage.get_result_path(job_id)
@@ -551,7 +597,24 @@ def create_app(
             input_path=str(input_path),
             result_path=str(result_path),
         )
-        repo.insert_job(rec)
+
+        try:
+            active_rec, inserted = repo.insert_or_get_active(rec)
+        except Exception:
+            storage.delete_job_files(job_id)
+            raise
+
+        if not inserted:
+            # A concurrent identical submission won the race; discard duplicate input file
+            storage.delete_job_files(job_id)
+            job_url = f"/v1/jobs/{active_rec.job_id}"
+            response.headers["Location"] = job_url
+            return JobSubmissionResponse(
+                job_id=active_rec.job_id,
+                status=active_rec.status,
+                created_at=active_rec.created_at,
+                links=JobLinks(self=job_url, cancel=job_url),
+            )
 
         job_url = f"/v1/jobs/{job_id}"
         response.headers["Location"] = job_url
@@ -611,6 +674,11 @@ def create_app(
             try:
                 result_payload = storage.read_result(job_id)
             except Exception as exc:
+                repo.mark_failed(
+                    job.job_id,
+                    "RESULT_READ_FAILED",
+                    f"Completed report could not be read: {exc}",
+                )
                 return JobStatusResponse(
                     job_id=job.job_id,
                     status=JobStatus.FAILED,
