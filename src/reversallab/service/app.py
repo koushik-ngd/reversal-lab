@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import sys
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -32,16 +36,32 @@ from reversallab.api import (
     UniformPolicy,
 )
 from reversallab.exceptions import DataValidationError, ReversalLabError
+from reversallab.service.job_models import (
+    JobErrorDetails,
+    JobLinks,
+    JobRecord,
+    JobStatus,
+    JobStatusResponse,
+    JobSubmissionResponse,
+)
+from reversallab.service.job_repository import JobRepository
+from reversallab.service.job_storage import (
+    InvalidJobIdError,
+    JobStorageManager,
+    StorageQuotaExceededError,
+)
 from reversallab.service.metrics import metrics
 from reversallab.service.schemas import (
     ComparisonResponse,
     EvaluationResponse,
     HealthResponse,
+    PolicyComparisonJobRequest,
     PolicyComparisonRequest,
     PolicyEvaluationRequest,
     PolicySpec,
     VersionResponse,
 )
+from reversallab.service.supervisor import JobSupervisor, initialize_supervisor
 
 # Configure service-specific logger without polluting root logger
 logger = logging.getLogger("reversallab.service")
@@ -52,6 +72,8 @@ logger.setLevel(logging.INFO)
 logger.propagate = False
 
 MAX_REQUEST_BYTES = 10 * 1024 * 1024  # 10 MB limit
+MAX_QUEUED_JOBS = 50
+MAX_STORAGE_BYTES = 200 * 1024 * 1024
 
 
 def _build_policy(spec: PolicySpec, n_actions: int) -> Policy:
@@ -162,8 +184,33 @@ class RequestSizeAndTracingMiddleware(BaseHTTPMiddleware):
             logger.info(json.dumps(log_payload))
 
 
-def create_app() -> FastAPI:
+def create_app(
+    storage_dir: str | Path | None = None,
+    enable_supervisor: bool = True,
+) -> FastAPI:
     """Application factory for the ReversalLab evaluation service."""
+
+    @asynccontextmanager
+    async def lifespan(app_instance: FastAPI) -> Any:
+        eff_storage_dir = Path(
+            storage_dir or os.environ.get("REVERSALLAB_STORAGE_DIR", "storage/jobs")
+        ).resolve()
+        storage = JobStorageManager(eff_storage_dir)
+        repo = JobRepository(storage.root_dir / "jobs.db")
+        app_instance.state.storage = storage
+        app_instance.state.repo = repo
+
+        supervisor: JobSupervisor | None = None
+        if enable_supervisor:
+            supervisor = initialize_supervisor(storage, repo)
+            supervisor.start()
+            app_instance.state.supervisor = supervisor
+
+        yield
+
+        if supervisor is not None:
+            supervisor.stop()
+
     app = FastAPI(
         title="ReversalLab Off-Policy Evaluation & Decision-Reversal Service",
         description=(
@@ -173,13 +220,14 @@ def create_app() -> FastAPI:
         version=__version__,
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
     app.add_middleware(RequestSizeAndTracingMiddleware, max_bytes=MAX_REQUEST_BYTES)
@@ -405,6 +453,290 @@ def create_app() -> FastAPI:
             status="inconclusive" if outcome == "INCONCLUSIVE" else "success",
             timestamp=datetime.now(UTC).isoformat(),
             report=comp_report.to_dict(),
+        )
+
+    def get_storage() -> JobStorageManager:
+        if not hasattr(app.state, "storage"):
+            eff_storage_dir = Path(
+                storage_dir or os.environ.get("REVERSALLAB_STORAGE_DIR", "storage/jobs")
+            ).resolve()
+            app.state.storage = JobStorageManager(eff_storage_dir)
+        return cast(JobStorageManager, app.state.storage)
+
+    def get_repo() -> JobRepository:
+        if not hasattr(app.state, "repo"):
+            st = get_storage()
+            app.state.repo = JobRepository(st.root_dir / "jobs.db")
+        return cast(JobRepository, app.state.repo)
+
+    @app.post(
+        "/v1/jobs/comparison",
+        status_code=status.HTTP_202_ACCEPTED,
+        response_model=JobSubmissionResponse,
+        summary="Submit asynchronous policy comparison & reversal job",
+    )
+    def submit_comparison_job(
+        req: PolicyComparisonJobRequest, request: Request, response: Response
+    ) -> Any:
+        """Submit background evaluation job returning 202 Accepted and polling location."""
+        request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        repo = get_repo()
+        storage = get_storage()
+
+        # Check queue capacity
+        if repo.count_pending_jobs() >= MAX_QUEUED_JOBS:
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "type": "https://reversallab.org/errors/queue-full",
+                    "title": "Too Many Requests",
+                    "status": 429,
+                    "detail": (
+                        f"Job admission queue is full ({MAX_QUEUED_JOBS} pending jobs). "
+                        "Please retry after active jobs complete."
+                    ),
+                    "instance": request.url.path,
+                    "request_id": request_id,
+                },
+                headers={"x-request-id": request_id, "Retry-After": "5"},
+            )
+
+        # Check storage quota
+        try:
+            storage.check_quota(MAX_STORAGE_BYTES)
+        except StorageQuotaExceededError as exc:
+            return JSONResponse(
+                status_code=status.HTTP_507_INSUFFICIENT_STORAGE,
+                content={
+                    "type": "https://reversallab.org/errors/storage-exceeded",
+                    "title": "Insufficient Storage",
+                    "status": 507,
+                    "detail": str(exc),
+                    "instance": request.url.path,
+                    "request_id": request_id,
+                },
+                headers={"x-request-id": request_id},
+            )
+
+        # Idempotency via canonical payload hash
+        payload_dict = req.model_dump()
+        payload_bytes = json.dumps(payload_dict, sort_keys=True).encode("utf-8")
+        payload_hash = hashlib.sha256(payload_bytes).hexdigest()
+
+        existing = repo.find_active_by_payload_hash(payload_hash)
+        if existing is not None:
+            job_url = f"/v1/jobs/{existing.job_id}"
+            response.headers["Location"] = job_url
+            return JobSubmissionResponse(
+                job_id=existing.job_id,
+                status=existing.status,
+                created_at=existing.created_at,
+                links=JobLinks(self=job_url, cancel=job_url),
+            )
+
+        # Create new job
+        job_id = str(uuid.uuid4())
+        input_path = storage.write_input(job_id, payload_dict, MAX_STORAGE_BYTES)
+        result_path = storage.get_result_path(job_id)
+
+        now = datetime.now(UTC).isoformat()
+        rec = JobRecord(
+            job_id=job_id,
+            created_at=now,
+            started_at=None,
+            completed_at=None,
+            status=JobStatus.PENDING,
+            attempt_count=1,
+            payload_hash=payload_hash,
+            input_path=str(input_path),
+            result_path=str(result_path),
+        )
+        repo.insert_job(rec)
+
+        job_url = f"/v1/jobs/{job_id}"
+        response.headers["Location"] = job_url
+        return JobSubmissionResponse(
+            job_id=job_id,
+            status=JobStatus.PENDING,
+            created_at=now,
+            links=JobLinks(self=job_url, cancel=job_url),
+        )
+
+    @app.get(
+        "/v1/jobs/{job_id}",
+        response_model=JobStatusResponse,
+        summary="Poll asynchronous job status and retrieve completed evaluation report",
+    )
+    def get_job_status(job_id: str, request: Request) -> Any:
+        """Poll job status or retrieve final report if completed."""
+        request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        repo = get_repo()
+        storage = get_storage()
+
+        try:
+            storage.validate_job_id(job_id)
+        except InvalidJobIdError:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "type": "https://reversallab.org/errors/invalid-job-id",
+                    "title": "Unprocessable Entity",
+                    "status": 422,
+                    "detail": f"Invalid job_id format: '{job_id}' must be a valid UUID4.",
+                    "instance": request.url.path,
+                    "request_id": request_id,
+                },
+                headers={"x-request-id": request_id},
+            )
+
+        job = repo.get_job(job_id)
+        if job is None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "type": "https://reversallab.org/errors/job-not-found",
+                    "title": "Not Found",
+                    "status": 404,
+                    "detail": f"Job '{job_id}' was not found.",
+                    "instance": request.url.path,
+                    "request_id": request_id,
+                },
+                headers={"x-request-id": request_id},
+            )
+
+        result_payload: dict[str, Any] | None = None
+        error_payload: JobErrorDetails | None = None
+
+        if job.status == JobStatus.COMPLETED:
+            try:
+                result_payload = storage.read_result(job_id)
+            except Exception as exc:
+                return JobStatusResponse(
+                    job_id=job.job_id,
+                    status=JobStatus.FAILED,
+                    created_at=job.created_at,
+                    started_at=job.started_at,
+                    completed_at=job.completed_at,
+                    attempt_count=job.attempt_count,
+                    result=None,
+                    error=JobErrorDetails(
+                        code="RESULT_READ_FAILED",
+                        message=f"Completed report could not be read: {exc}",
+                    ),
+                )
+
+        elif job.status == JobStatus.FAILED:
+            error_payload = JobErrorDetails(
+                code=job.error_code or "FAILED",
+                message=job.error_message or "Job execution failed.",
+            )
+
+        elif job.status == JobStatus.CANCELED:
+            error_payload = JobErrorDetails(
+                code="JOB_CANCELED",
+                message="Job was canceled before or during execution.",
+            )
+
+        return JobStatusResponse(
+            job_id=job.job_id,
+            status=job.status,
+            created_at=job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            attempt_count=job.attempt_count,
+            result=result_payload,
+            error=error_payload,
+        )
+
+    @app.delete(
+        "/v1/jobs/{job_id}",
+        response_model=JobStatusResponse,
+        summary="Cancel a pending or running asynchronous evaluation job",
+    )
+    def cancel_job(job_id: str, request: Request) -> Any:
+        """Cancel a pending or running background job."""
+        request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        repo = get_repo()
+        storage = get_storage()
+
+        try:
+            storage.validate_job_id(job_id)
+        except InvalidJobIdError:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "type": "https://reversallab.org/errors/invalid-job-id",
+                    "title": "Unprocessable Entity",
+                    "status": 422,
+                    "detail": f"Invalid job_id format: '{job_id}' must be a valid UUID4.",
+                    "instance": request.url.path,
+                    "request_id": request_id,
+                },
+                headers={"x-request-id": request_id},
+            )
+
+        job = repo.get_job(job_id)
+        if job is None:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "type": "https://reversallab.org/errors/job-not-found",
+                    "title": "Not Found",
+                    "status": 404,
+                    "detail": f"Job '{job_id}' was not found.",
+                    "instance": request.url.path,
+                    "request_id": request_id,
+                },
+                headers={"x-request-id": request_id},
+            )
+
+        if job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content={
+                    "type": "https://reversallab.org/errors/job-terminal",
+                    "title": "Conflict",
+                    "status": 409,
+                    "detail": f"Cannot cancel job in terminal state '{job.status.value}'.",
+                    "instance": request.url.path,
+                    "request_id": request_id,
+                },
+                headers={"x-request-id": request_id},
+            )
+
+        if job.status == JobStatus.CANCELED:
+            return JobStatusResponse(
+                job_id=job.job_id,
+                status=JobStatus.CANCELED,
+                created_at=job.created_at,
+                started_at=job.started_at,
+                completed_at=job.completed_at,
+                attempt_count=job.attempt_count,
+                result=None,
+                error=JobErrorDetails(code="JOB_CANCELED", message="Job is already canceled."),
+            )
+
+        # Job is PENDING or RUNNING
+        supervisor = getattr(app.state, "supervisor", None)
+        if supervisor is not None:
+            supervisor.cancel_active_job(job_id)
+        else:
+            repo.request_cancellation(job_id)
+
+        updated = repo.get_job(job_id)
+        assert updated is not None
+        return JobStatusResponse(
+            job_id=updated.job_id,
+            status=updated.status,
+            created_at=updated.created_at,
+            started_at=updated.started_at,
+            completed_at=updated.completed_at,
+            attempt_count=updated.attempt_count,
+            result=None,
+            error=JobErrorDetails(
+                code="JOB_CANCELED",
+                message="Job cancellation requested and processed.",
+            ),
         )
 
     return app

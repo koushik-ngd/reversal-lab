@@ -169,6 +169,10 @@ class PolicyEvaluationRequest(BaseModel):
         return self
 
 
+SYNCHRONOUS_BUDGET_LIMIT = 10_000_000
+BACKGROUND_BUDGET_LIMIT = 50_000_000
+
+
 class PolicyComparisonRequest(BaseModel):
     """Request payload for paired policy comparison and decision reversal."""
 
@@ -189,21 +193,7 @@ class PolicyComparisonRequest(BaseModel):
     min_propensity_threshold: float = Field(1e-4, gt=0.0)
     seed: int | None = None
 
-    @model_validator(mode="after")
-    def validate_budget_and_policies(self) -> PolicyComparisonRequest:
-        n = len(self.dataset.contexts)
-        d = len(self.dataset.contexts[0])
-        k = self.dataset.n_actions
-
-        budget = n * d * self.cross_fitting_folds * k
-        max_budget = 10_000_000
-        if budget > max_budget:
-            msg = (
-                f"Requested computation budget (N*D*folds*K = {budget}) exceeds "
-                f"maximum synchronous limit of {max_budget}."
-            )
-            raise ValueError(msg)
-
+    def _validate_common_constraints(self, d: int, k: int) -> None:
         if self.deploy_epsilon > self.max_epsilon:
             msg = (
                 f"deploy_epsilon ({self.deploy_epsilon}) cannot exceed "
@@ -244,6 +234,42 @@ class PolicyComparisonRequest(BaseModel):
                     f"Baseline policy weights shape ({w_d}, {w_k}) does not match D={d}, K={k}."
                 )
 
+    @model_validator(mode="after")
+    def validate_budget_and_policies(self) -> PolicyComparisonRequest:
+        n = len(self.dataset.contexts)
+        d = len(self.dataset.contexts[0])
+        k = self.dataset.n_actions
+
+        budget = n * d * self.cross_fitting_folds * k
+        if budget > SYNCHRONOUS_BUDGET_LIMIT:
+            msg = (
+                f"Requested computation budget (N*D*folds*K = {budget}) exceeds "
+                f"maximum synchronous limit of {SYNCHRONOUS_BUDGET_LIMIT}."
+            )
+            raise ValueError(msg)
+
+        self._validate_common_constraints(d, k)
+        return self
+
+
+class PolicyComparisonJobRequest(PolicyComparisonRequest):
+    """Request payload for asynchronous background policy comparison jobs with higher budget."""
+
+    @model_validator(mode="after")
+    def validate_budget_and_policies(self) -> PolicyComparisonJobRequest:
+        n = len(self.dataset.contexts)
+        d = len(self.dataset.contexts[0])
+        k = self.dataset.n_actions
+
+        budget = n * d * self.cross_fitting_folds * k
+        if budget > BACKGROUND_BUDGET_LIMIT:
+            msg = (
+                f"Requested computation budget (N*D*folds*K = {budget}) exceeds "
+                f"maximum background limit of {BACKGROUND_BUDGET_LIMIT}."
+            )
+            raise ValueError(msg)
+
+        self._validate_common_constraints(d, k)
         return self
 
 
