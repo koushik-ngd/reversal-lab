@@ -161,3 +161,32 @@ Reviewers are encouraged to scrutinize:
 2. Are the diagnostic gate thresholds ($\tau = 10^{-4}$, $\text{ESS}/N \ge 0.05$, max single weight $\le 0.20$) practical across varied industry datasets?
 3. Is the mathematical equivalence between inverse reversal search and forward robust mixture evaluation clearly presented without overclaiming?
 4. Does the decoupled state machine (`status: COMPLETED` vs `artifact_available: bool`) adequately preserve auditability during storage failures?
+
+---
+
+## 9. Reviewer Protocols, Feedback & Issue Triage
+
+### Role-Specific Review Protocols
+Detailed protocols tailored to specific technical specialties are provided in:
+- **[Reviewer Tracks Specification](reviewer_tracks.md)**:
+  - **Track A**: Statistical ML Researcher (Estimator assumptions, leakage-safe cross-fitting, Monte Carlo reproduction, Wald coverage).
+  - **Track B**: Python Package Engineer (Isolated installation, dependency footprints, typing compliance, SDK contracts).
+  - **Track C**: Backend/ML Infrastructure Engineer (Persistent SQLite storage, advisory file locks, worker fencing, targeted cancellation, crash recovery).
+
+### Feedback Submission
+All external reviewers should submit their findings using the standardized template:
+- **[Reviewer Feedback Template](reviewer_feedback_template.md)**: Captures environment configuration, tasks attempted, observed numerical outputs, bugs encountered, and overall readiness verdict.
+
+### Empirical Usefulness Evaluation
+The protocol for evaluating the human interpretability and decision accuracy of distance-to-reversal metrics vs. forward worst-case bounds is detailed in:
+- **[Scientific Usefulness Study Design](study_design_usefulness.md)**.
+
+### Issue Prioritization & Triage SLA
+Reported issues will be triaged according to the following SLA matrix:
+
+| Priority | Definition | Examples | Response / Resolution SLA |
+| :---: | :--- | :--- | :--- |
+| **P0 (Blocker)** | Data corruption, memory leaks, security bypass, worker hang with zero recovery, invalid statistical math producing false positives. | Flawed cross-fitting fold assignment, unbounded memory growth under load. | Ack within 2 hours; hotfix or patch release within 24 hours. |
+| **P1 (High)** | Diagnostic false negatives, unhandled crashes on valid inputs, edge-case race conditions under concurrency, critical documentation omissions. | Kish ESS calculation failure, supervisor election deadlock on NFS. | Ack within 12 hours; resolution within 3 business days. |
+| **P2 (Medium)** | Non-blocking exception tracebacks, missing CLI help text, minor documentation typos, non-blocking test flakes on specific OS versions. | Unclear validation message, missing parameter description. | Ack within 24 hours; resolved in next planned release candidate. |
+| **P3 (Low)** | Code refactoring, non-urgent feature requests (multidimensional reversal, new estimators), performance micro-optimizations. | Request for Wasserstein metric support. | Triaged for future roadmap (v0.2.0+). |

@@ -51,7 +51,7 @@ ReversalLab requires Python 3.11+ (recommended: Python 3.12 pinned via [uv](http
 
 ```bash
 # Clone the repository
-git clone https://github.com/reversallab/reversal-lab.git
+git clone https://github.com/koushik-ngd/reversal-lab.git
 cd reversal-lab
 
 # Install dependencies using uv
@@ -233,6 +233,10 @@ ReversalLab was developed through seven audited empirical milestones:
 - [`docs/architecture_jobs.md`](docs/architecture_jobs.md): Background job engine specification.
 - [`docs/service.md`](docs/service.md): FastAPI REST service endpoints and load testing.
 - [`docs/decision_reliability_audit.md`](docs/decision_reliability_audit.md): Complete mathematical and empirical closeout audit of Experiment 007.
+- [`docs/external_review_guide.md`](docs/external_review_guide.md): Independent reviewer onboarding and reproduction guide.
+- [`docs/reviewer_tracks.md`](docs/reviewer_tracks.md): Role-specific review protocols (Tracks A, B, C).
+- [`docs/reviewer_feedback_template.md`](docs/reviewer_feedback_template.md): Standardized reviewer evaluation template.
+- [`docs/study_design_usefulness.md`](docs/study_design_usefulness.md): Scientific usefulness and interpretability study design.
 - [`docs/methodology.md`](docs/methodology.md): Formal definitions of estimators and mixture perturbations.
 - [`docs/data_contract.md`](docs/data_contract.md): Field-by-field array contracts and validation rules.
 - [`docs/assumptions.md`](docs/assumptions.md): Supported statistical claims vs. deliberate limitations.
