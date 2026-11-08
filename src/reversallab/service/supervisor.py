@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from reversallab.service.job_models import JobStatus
@@ -94,7 +95,7 @@ class JobSupervisor:
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
-        self._active_processes: dict[str, tuple[subprocess.Popen[bytes], float]] = {}
+        self._active_processes: dict[str, tuple[subprocess.Popen[bytes], float, str]] = {}
         self._last_purge_time = 0.0
 
     def _safe_terminate_orphan_pid(self, pid: int, job_id: str) -> None:
@@ -171,7 +172,7 @@ class JobSupervisor:
             self._thread.join(timeout=3.0)
 
         # Terminate any remaining child processes
-        for job_id, (proc, _) in list(self._active_processes.items()):
+        for job_id, (proc, _, exec_token) in list(self._active_processes.items()):
             self._terminate_process(proc)
             rec = self.repo.get_job(job_id)
             if rec and rec.status != JobStatus.COMPLETED:
@@ -179,6 +180,7 @@ class JobSupervisor:
                     job_id,
                     "SUPERVISOR_SHUTDOWN",
                     "Job was terminated due to server shutdown.",
+                    execution_token=exec_token,
                 )
 
         self._active_processes.clear()
@@ -203,7 +205,7 @@ class JobSupervisor:
 
         # If it is running locally in our active processes
         if job_id in self._active_processes:
-            proc, _ = self._active_processes.pop(job_id)
+            proc, _, _ = self._active_processes.pop(job_id)
             self._terminate_process(proc)
             self.repo.mark_canceled(job_id)
             self.storage.delete_job_files(job_id)
@@ -241,7 +243,7 @@ class JobSupervisor:
         now = time.time()
 
         # 1. Inspect active processes
-        for job_id, (proc, start_time) in list(self._active_processes.items()):
+        for job_id, (proc, start_time, exec_token) in list(self._active_processes.items()):
             ret = proc.poll()
             if ret is not None:
                 # Process exited
@@ -261,6 +263,7 @@ class JobSupervisor:
                             job_id,
                             "WORKER_PROCESS_CRASHED",
                             f"Worker process exited unexpectedly with code {ret}",
+                            execution_token=exec_token,
                         )
                 else:
                     # Successful exit: verify result file
@@ -270,9 +273,10 @@ class JobSupervisor:
                             job_id,
                             "RESULT_FILE_MISSING",
                             "Worker completed with code 0 but result file was not found on disk.",
+                            execution_token=exec_token,
                         )
                     else:
-                        self.repo.mark_completed(job_id)
+                        self.repo.mark_completed(job_id, execution_token=exec_token)
 
             elif now - start_time > self.job_timeout_seconds:
                 # Timeout exceeded
@@ -282,10 +286,11 @@ class JobSupervisor:
                     job_id,
                     "JOB_TIMEOUT_EXCEEDED",
                     f"Job exceeded maximum runtime limit of {self.job_timeout_seconds} seconds.",
+                    execution_token=exec_token,
                 )
 
         # 2. Check for cancellation requests on active jobs
-        for job_id, (proc, _) in list(self._active_processes.items()):
+        for job_id, (proc, _, _) in list(self._active_processes.items()):
             rec = self.repo.get_job(job_id)
             if rec and rec.cancel_requested:
                 del self._active_processes[job_id]
@@ -297,7 +302,8 @@ class JobSupervisor:
         while len(self._active_processes) < self.max_active_workers:
             # Temporary dummy PID for reservation, updated once process spawns
             dummy_pid = os.getpid()
-            claimed = self.repo.claim_next_pending_job(dummy_pid)
+            exec_token = uuid.uuid4().hex
+            claimed = self.repo.claim_next_pending_job(dummy_pid, execution_token=exec_token)
             if claimed is None:
                 break
 
@@ -318,6 +324,8 @@ class JobSupervisor:
                 str(out_path),
                 "--db-path",
                 str(db_path),
+                "--execution-token",
+                exec_token,
             ]
 
             try:
@@ -327,12 +335,13 @@ class JobSupervisor:
                     stderr=subprocess.DEVNULL,
                 )
                 self.repo.update_worker_pid(job_id, proc.pid)
-                self._active_processes[job_id] = (proc, time.time())
+                self._active_processes[job_id] = (proc, time.time(), exec_token)
             except Exception as exc:
                 self.repo.mark_failed(
                     job_id,
                     "WORKER_SPAWN_FAILED",
                     f"Failed to spawn worker process: {exc}",
+                    execution_token=exec_token,
                 )
 
         # 4. Periodic storage purge (every 5 minutes)

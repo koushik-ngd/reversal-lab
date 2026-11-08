@@ -411,10 +411,10 @@ def test_input_file_rollback_on_db_insert_error(
         assert len(input_files) == 0
 
 
-def test_corrupt_result_file_transitions_to_failed(
+def test_corrupt_result_file_reports_artifact_corrupted(
     tmp_path: Path, adversarial_payload: dict[str, Any]
 ) -> None:
-    """Verify corrupted result JSON returns RESULT_READ_FAILED and updates DB to FAILED."""
+    """Verify corrupted result JSON keeps status COMPLETED with artifact_available=False."""
     app = create_app(storage_dir=tmp_path, enable_supervisor=True)
     with TestClient(app) as client:
         res = client.post("/v1/jobs/comparison", json=adversarial_payload)
@@ -423,6 +423,7 @@ def test_corrupt_result_file_transitions_to_failed(
 
         final_st = wait_for_terminal(client, job_id)
         assert final_st["status"] == "COMPLETED"
+        assert final_st["artifact_available"] is True
 
         # Corrupt the result JSON file on disk
         storage = JobStorageManager(tmp_path)
@@ -434,15 +435,60 @@ def test_corrupt_result_file_transitions_to_failed(
         poll_res = client.get(f"/v1/jobs/{job_id}")
         assert poll_res.status_code == 200
         poll_data = poll_res.json()
-        assert poll_data["status"] == "FAILED"
-        assert poll_data["error"]["code"] == "RESULT_READ_FAILED"
+        assert poll_data["status"] == "COMPLETED"
+        assert poll_data["artifact_available"] is False
+        assert poll_data["result"] is None
+        assert poll_data["error"]["code"] == "ARTIFACT_CORRUPTED"
 
-        # Verify DB row was also updated to FAILED
+        # Verify DB row remains COMPLETED (terminal state immutability)
         repo = JobRepository(tmp_path / "jobs.db")
         job_rec = repo.get_job(job_id)
         assert job_rec is not None
-        assert job_rec.status == JobStatus.FAILED
-        assert job_rec.error_code == "RESULT_READ_FAILED"
+        assert job_rec.status == JobStatus.COMPLETED
+
+
+def test_worker_execution_token_fencing_rejects_stale_commits(tmp_path: Path) -> None:
+    """Verify worker fails pre/post-commit check if execution_token mismatches active generation."""
+    from reversallab.service.worker import execute_job
+
+    storage = JobStorageManager(tmp_path)
+    repo = JobRepository(tmp_path / "jobs.db")
+
+    job_id = "00000000-0000-4000-8000-000000000099"
+    in_path = storage.write_input(job_id, {"dummy": 1})
+    out_path = storage.get_result_path(job_id)
+
+    # Claim job with token A
+    rec = JobRecord(
+        job_id=job_id,
+        created_at="2026-11-08T00:00:00Z",
+        started_at="2026-11-08T00:00:01Z",
+        completed_at=None,
+        status=JobStatus.RUNNING,
+        attempt_count=1,
+        payload_hash="fence_hash",
+        input_path=str(in_path),
+        result_path=str(out_path),
+        execution_token="token_generation_A",
+    )
+    repo.insert_job(rec)
+
+    # Stale worker runs with token B (e.g. from an old or different generation)
+    exit_code = execute_job(
+        job_id=job_id,
+        input_path=in_path,
+        result_path=out_path,
+        db_path=repo.db_path,
+        execution_token="token_generation_B",
+    )
+    # Must exit with code 2 (fenced/aborted) without mutating database status
+    assert exit_code == 2
+
+    # Check database status is still untouched RUNNING with token A
+    job_rec = repo.get_job(job_id)
+    assert job_rec is not None
+    assert job_rec.status == JobStatus.RUNNING
+    assert job_rec.execution_token == "token_generation_A"
 
 
 def test_sqlite_locked_returns_503(

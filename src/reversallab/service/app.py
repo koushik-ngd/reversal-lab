@@ -550,25 +550,17 @@ def create_app(
                 headers={"x-request-id": request_id},
             )
 
-        # Idempotency via canonical payload hash (RFC 8785 canonical JSON sorting & separators)
+        # Idempotency via deterministic payload hash (canonical key-sorted UTF-8 JSON)
         payload_dict = req.model_dump()
         payload_bytes = json.dumps(payload_dict, sort_keys=True, separators=(",", ":")).encode(
             "utf-8"
         )
         payload_hash = hashlib.sha256(payload_bytes).hexdigest()
 
-        existing = repo.find_active_by_payload_hash(payload_hash)
-        if (
-            existing is not None
-            and existing.status == JobStatus.COMPLETED
-            and not storage.get_result_path(existing.job_id).exists()
-        ):
-            repo.mark_failed(
-                existing.job_id,
-                "RESULT_EXPIRED",
-                "Completed result file has expired or was removed from persistent storage.",
-            )
-            existing = None
+        existing = repo.find_active_by_payload_hash(
+            payload_hash,
+            artifact_checker=lambda jid: storage.get_result_path(jid).exists(),
+        )
 
         if existing is not None:
             job_url = f"/v1/jobs/{existing.job_id}"
@@ -599,7 +591,10 @@ def create_app(
         )
 
         try:
-            active_rec, inserted = repo.insert_or_get_active(rec)
+            active_rec, inserted = repo.insert_or_get_active(
+                rec,
+                artifact_checker=lambda jid: storage.get_result_path(jid).exists(),
+            )
         except Exception:
             storage.delete_job_files(job_id)
             raise
@@ -669,37 +664,36 @@ def create_app(
 
         result_payload: dict[str, Any] | None = None
         error_payload: JobErrorDetails | None = None
+        artifact_available = False
 
         if job.status == JobStatus.COMPLETED:
-            try:
-                result_payload = storage.read_result(job_id)
-            except Exception as exc:
-                repo.mark_failed(
-                    job.job_id,
-                    "RESULT_READ_FAILED",
-                    f"Completed report could not be read: {exc}",
+            res_path = storage.get_result_path(job_id)
+            if not res_path.exists():
+                artifact_available = False
+                error_payload = JobErrorDetails(
+                    code="ARTIFACT_EXPIRED",
+                    message=("Completed result artifact has expired or was removed from storage."),
                 )
-                return JobStatusResponse(
-                    job_id=job.job_id,
-                    status=JobStatus.FAILED,
-                    created_at=job.created_at,
-                    started_at=job.started_at,
-                    completed_at=job.completed_at,
-                    attempt_count=job.attempt_count,
-                    result=None,
-                    error=JobErrorDetails(
-                        code="RESULT_READ_FAILED",
+            else:
+                try:
+                    result_payload = storage.read_result(job_id)
+                    artifact_available = True
+                except Exception as exc:
+                    artifact_available = False
+                    error_payload = JobErrorDetails(
+                        code="ARTIFACT_CORRUPTED",
                         message=f"Completed report could not be read: {exc}",
-                    ),
-                )
+                    )
 
         elif job.status == JobStatus.FAILED:
+            artifact_available = False
             error_payload = JobErrorDetails(
                 code=job.error_code or "FAILED",
                 message=job.error_message or "Job execution failed.",
             )
 
         elif job.status == JobStatus.CANCELED:
+            artifact_available = False
             error_payload = JobErrorDetails(
                 code="JOB_CANCELED",
                 message="Job was canceled before or during execution.",
@@ -708,6 +702,7 @@ def create_app(
         return JobStatusResponse(
             job_id=job.job_id,
             status=job.status,
+            artifact_available=artifact_available,
             created_at=job.created_at,
             started_at=job.started_at,
             completed_at=job.completed_at,
@@ -776,6 +771,7 @@ def create_app(
             return JobStatusResponse(
                 job_id=job.job_id,
                 status=JobStatus.CANCELED,
+                artifact_available=False,
                 created_at=job.created_at,
                 started_at=job.started_at,
                 completed_at=job.completed_at,
@@ -796,6 +792,7 @@ def create_app(
         return JobStatusResponse(
             job_id=updated.job_id,
             status=updated.status,
+            artifact_available=False,
             created_at=updated.created_at,
             started_at=updated.started_at,
             completed_at=updated.completed_at,

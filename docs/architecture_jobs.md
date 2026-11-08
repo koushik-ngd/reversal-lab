@@ -1,7 +1,7 @@
 # ReversalLab — Asynchronous Job Processing Architecture Specification
 
-> **Milestone**: M6C  
-> **Status**: Verified & Hardened Architecture  
+> **Milestone**: M6D  
+> **Status**: Verified & Hardened Release Candidate Architecture  
 > **Domain**: Persistent Bounded Off-Policy Evaluation & Decision-Reversal Engine
 
 ---
@@ -109,65 +109,95 @@ The lifecycle of every job follows a strictly defined finite state machine. Tran
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING: POST /v1/jobs/comparison
-    PENDING --> RUNNING: Supervisor Claims Job (worker_pid set)
+    PENDING --> RUNNING: Supervisor Claims Job (worker_pid set, token assigned)
     PENDING --> CANCELED: DELETE /v1/jobs/{id} before start
     
-    RUNNING --> COMPLETED: Worker finishes & writes result.json (cancel_requested=0)
+    RUNNING --> COMPLETED: Worker finishes & writes result.json (cancel_requested=0, token valid)
     RUNNING --> FAILED: Worker exception or crash detected
     RUNNING --> CANCELED: DELETE /v1/jobs/{id} & child killed / fenced
     
     RUNNING --> FAILED: Supervisor restart recovery (orphaned job)
-    COMPLETED --> FAILED: Missing or corrupt result file (RESULT_READ_FAILED / RESULT_EXPIRED)
     
     COMPLETED --> [*]
     FAILED --> [*]
     CANCELED --> [*]
 ```
 
+### Execution Outcome vs. Artifact Availability
+
+To preserve mathematical auditability and avoid state-machine contradictions, ReversalLab strictly decouples **Execution Outcome** (tracked in SQLite metadata) from **Artifact Availability** (tracked on persistent disk):
+
+1. **Terminal-State Immutability**:
+   Once a job transitions to a terminal state (`COMPLETED`, `FAILED`, `CANCELED`), its status row in SQLite is immutable. A job whose compute successfully completed is permanently recorded as `status: COMPLETED`. It is **never** mutated to `FAILED` simply because a physical file on disk was purged, moved, or corrupted.
+
+2. **Artifact Availability Dimension (`artifact_available: bool`)**:
+   `JobStatusResponse` includes an explicit `artifact_available` boolean field:
+   - For `COMPLETED` jobs where `results/<job_id>.json` exists and parses cleanly, `status: COMPLETED`, `artifact_available: true`, `result: {...}`, and `error: null`.
+   - If the result file has been pruned by retention policies or deleted, `status: COMPLETED`, `artifact_available: false`, `result: null`, and `error: {code: "ARTIFACT_EXPIRED", message: ...}`.
+   - If the result file exists but contains corrupted bytes, `status: COMPLETED`, `artifact_available: false`, `result: null`, and `error: {code: "ARTIFACT_CORRUPTED", message: ...}`.
+   - For `PENDING`, `RUNNING`, `FAILED`, and `CANCELED` jobs, `artifact_available: false`.
+
+3. **Cache Invalidation & Resubmission**:
+   When a client submits a payload, deduplication checks both SQLite status and physical artifact presence via `artifact_checker`. If an earlier job finished but its result artifact is no longer available on disk, the previous `COMPLETED` row is preserved for auditing, and a fresh evaluation job is admitted with a new `job_id`.
+
 ### Transition Matrix & Invariants
 
 | From State | To State | Trigger Event | Guard / Conditions | Post-Actions |
 | :--- | :--- | :--- | :--- | :--- |
 | `[None]` | `PENDING` | `POST /v1/jobs/comparison` | Payload valid, admission queue not full ($< 50$), storage under quota ($< 200\text{ MB}$). | Input written atomically; job row inserted in SQLite transaction. |
-| `PENDING` | `RUNNING` | Supervisor dispatch | Available worker slot ($C_{active} < 2$). | `started_at` set, child spawned, real OS `worker_pid` recorded. |
+| `PENDING` | `RUNNING` | Supervisor dispatch | Available worker slot ($C_{active} < 2$). | `started_at` set, child spawned, real OS `worker_pid` and ephemeral `execution_token` recorded. |
 | `PENDING` | `CANCELED` | `DELETE /v1/jobs/{id}` | Job is in `PENDING` state. | Set `status = 'CANCELED'`, `completed_at = now()`, remove input file. |
-| `RUNNING` | `COMPLETED` | Worker exit code 0 | Result file valid on disk AND `cancel_requested = 0`. | Set `status = 'COMPLETED'`, `completed_at = now()`. |
+| `RUNNING` | `COMPLETED` | Worker exit code 0 | Result file valid on disk, `cancel_requested = 0`, and `execution_token` matches active generation. | Set `status = 'COMPLETED'`, `completed_at = now()`. |
 | `RUNNING` | `FAILED` | Worker exit code $\ne 0$ or unhandled error | Process exited with error or exception. | Set `status = 'FAILED'`, record `error_code` and message. |
 | `RUNNING` | `CANCELED` | `DELETE /v1/jobs/{id}` | Child process terminated via SIGTERM/SIGKILL or worker fence (exit code 2). | Verified process dead, set `status = 'CANCELED'`, delete partial files. |
 | `RUNNING` | `FAILED` | Supervisor crash recovery | Process orphaned on supervisor startup. | Safe zombie process termination, set `error_code = 'CRASH_OR_RESTART_DETECTED'`. |
-| `COMPLETED`| `FAILED` | Result read failure | Result file deleted or contains corrupt JSON. | Transitions to `FAILED` (`RESULT_READ_FAILED` or `RESULT_EXPIRED`). |
+| `COMPLETED`| `[No-op]` | Result read failure | Result file missing or corrupt. | State remains `COMPLETED`; response reports `artifact_available = false` with `ARTIFACT_EXPIRED` or `ARTIFACT_CORRUPTED`. |
 | `COMPLETED`| `[No-op]` | `DELETE /v1/jobs/{id}` | Job already in terminal state. | Rejects with HTTP 409 Conflict; state is immutable. |
 
 ---
 
 ## 5. Idempotency Specification & Race Elimination
 
-### Canonical Content Hashing
-1. **Serialization**: Inbound request dictionaries are serialized to bytes using RFC 8785 canonical JSON formatting:
+### Deterministic Payload Hashing Contract
+1. **Serialization**: Inbound request dictionaries are serialized to bytes using ReversalLab's deterministic JSON serialization contract:
    `json.dumps(payload_dict, sort_keys=True, separators=(",", ":")).encode("utf-8")`.
-2. **Hash Key**: A SHA-256 digest is computed from the canonical bytes (`payload_hash`).
+   This guarantees deterministic hashing across Python runtimes without claiming full RFC 8785 canonicalization (which imposes ECMA-262 float formatting and UTF-16 code-unit collation).
+2. **Hash Key**: A SHA-256 digest is computed from the deterministic bytes (`payload_hash`).
 
 ### Atomic Reservation Transaction
 To prevent race conditions where two identical payloads are submitted concurrently:
 - The repository executes `BEGIN IMMEDIATE;` on the SQLite connection.
-- It queries `SELECT * FROM jobs WHERE payload_hash = ? AND status IN ('PENDING', 'RUNNING', 'COMPLETED')`.
-- If an active job already exists, the transaction commits immediately and returns `(existing_record, False)`. The web handler discards the staged duplicate input file and returns `202 Accepted` pointing to the existing job.
-- If no active job exists, it inserts the record within the same transaction and returns `(new_record, True)`.
+- It queries `SELECT * FROM jobs WHERE payload_hash = ? AND status IN ('PENDING', 'RUNNING', 'COMPLETED') ORDER BY created_at DESC`.
+- For `COMPLETED` candidates, an `artifact_checker` verifies whether the result artifact is currently present on storage.
+- If an active job (or a completed job with an available result artifact) exists, the transaction commits immediately and returns `(existing_record, False)`. The web handler discards the duplicate input file and returns `202 Accepted` pointing to the existing job.
+- If no active job exists (or if prior completed jobs have lost their artifacts), it inserts the record within the same transaction and returns `(new_record, True)`.
 
 ### Re-evaluation After Terminal States
 - **Failed or Canceled Jobs**: If a prior job with the same payload hash is in `FAILED` or `CANCELED` status, it is NOT considered active. Resubmitting will create and execute a fresh evaluation job.
-- **Expired / Purged Results**: If a prior job was `COMPLETED`, but its output file was purged from disk (>24h retention or manual cleanup), the engine detects the missing file, marks the historical record `RESULT_EXPIRED`, and admits a fresh evaluation job.
+- **Expired / Purged Results**: If a prior job was `COMPLETED`, but its output file was purged from disk (>24h retention or manual cleanup), `artifact_checker` detects the missing file and admits a fresh evaluation job without mutating the historical DB record.
 - **Semantic Contract**: The engine provides **at-most-once execution** with opportunistic deduplication. It does NOT promise distributed exactly-once semantics.
 
 ---
 
-## 6. Cancellation Guarantees & Two-Phase Worker Fencing
+## 6. Cancellation Guarantees, Two-Phase Worker Fencing & Generation Tokens
+
+### Generation Tokens (`execution_token`)
+To guard against stale worker processes committing results or mutating database state across supervisor restarts, leader transitions, or PID reuse:
+- When the supervisor claims a job from `PENDING` to `RUNNING`, it generates an ephemeral UUID4 token (`execution_token`).
+- This token is recorded in the SQLite database and passed to the child process via `--execution-token`.
+- Every fence check and the terminal transition `mark_completed(job_id, execution_token)` requires an exact token match. Stale workers from previous generations or restarted supervisors are fenced out immediately and cleanly abort.
 
 ### Two-Phase Process Fencing
 Python's `concurrent.futures.ProcessPoolExecutor.Future.cancel()` cannot interrupt a task that has already begun execution. ReversalLab implements explicit two-phase process fencing in `src/reversallab/service/worker.py`:
-1. **Phase 1 (Pre-Execution Fence)**: Before loading datasets and policies, the child worker process queries `jobs.db`. If `cancel_requested == 1` or `status != 'RUNNING'`, it immediately aborts with exit code 2.
-2. **Phase 2 (Pre-Commit Fence)**: After `PolicyComparison.evaluate` finishes heavy matrix multiplications, the child worker queries `jobs.db` again before replacing the result file. If `cancel_requested == 1`, it immediately deletes any temporary files, leaves `results/<job_id>.json` untouched, and exits with code 2.
+1. **Phase 1 (Pre-Execution Fence)**: Before loading datasets and policies, the child worker process queries `jobs.db`. If `cancel_requested == 1`, `status != 'RUNNING'`, or `execution_token` mismatches, it immediately aborts with exit code 2.
+2. **Phase 2 (Pre-Commit Fence)**: After `PolicyComparison.evaluate` finishes heavy matrix multiplications, the child worker queries `jobs.db` again before replacing the result file. If `cancel_requested == 1` or `execution_token` mismatches, it immediately deletes any temporary files, leaves `results/<job_id>.json` untouched, and exits with code 2.
 3. **Atomic State Transition**: `JobRepository.mark_completed` executes:
+   ```sql
+   UPDATE jobs
+   SET status = 'COMPLETED', completed_at = ?
+   WHERE job_id = ? AND status = 'RUNNING' AND cancel_requested = 0 AND execution_token = ?;
+   ```
+   If a cancellation request arrived or the generation token changed right as the worker was finishing, `mark_completed` fails (`rowcount == 0`). The worker detects this, unlinks the result file, and exits with code 2.
    ```sql
    UPDATE jobs
    SET status = 'COMPLETED', completed_at = ?
@@ -241,6 +271,6 @@ If a supervisor process crashes while a child worker is mid-computation:
 | **Execution Timeout** | Client Socket Timeout | Strict 300 seconds (Reaped automatically) |
 | **Storage Hard Quota** | None (In-memory) | 200 MB |
 | **Data Retention** | Ephemeral | 24 Hours (Automatic purge) |
-| **Process Startup Baseline** | 0 ms | $\approx 970\text{--}1{,}000\text{ ms}$ |
-| **Pure Evaluation Time ($N=2500$)** | $\approx 22\text{ ms}$ | $\approx 22\text{ ms}$ |
-| **Cancellation Confirmation Latency** | N/A (Cannot cancel in-flight) | $\text{p50} = 58.34\text{ ms}, \text{p95} = 73.07\text{ ms}$ |
+| **Process Startup Baseline** | 0 ms | $\approx 1{,}690\text{ ms}$ (Windows process spawn) |
+| **Pure Evaluation Time ($N=2500$)** | $\approx 22.5\text{ ms}$ | $\approx 22.5\text{ ms}$ |
+| **Cancellation Confirmation Latency** | N/A (Cannot cancel in-flight) | $\text{p50} = 84.89\text{ ms}, \text{p95} = 105.81\text{ ms}$ |

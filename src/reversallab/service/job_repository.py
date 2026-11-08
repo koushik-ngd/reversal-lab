@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,15 +59,22 @@ class JobRepository:
                         error_code TEXT,
                         error_message TEXT,
                         cancel_requested INTEGER NOT NULL DEFAULT 0,
-                        worker_pid INTEGER
+                        worker_pid INTEGER,
+                        execution_token TEXT
                     );
                     """
             )
+            # Ensure execution_token column exists if table was previously created
+            cols = [str(row["name"]) for row in conn.execute("PRAGMA table_info(jobs);").fetchall()]
+            if "execution_token" not in cols:
+                conn.execute("ALTER TABLE jobs ADD COLUMN execution_token TEXT;")
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_payload_hash ON jobs(payload_hash);")
 
     def _row_to_record(self, row: sqlite3.Row) -> JobRecord:
         """Convert a SQLite Row into a typed JobRecord."""
+        token = row["execution_token"]
         return JobRecord(
             job_id=str(row["job_id"]),
             created_at=str(row["created_at"]),
@@ -82,6 +89,7 @@ class JobRepository:
             error_message=row["error_message"],
             cancel_requested=bool(row["cancel_requested"]),
             worker_pid=row["worker_pid"],
+            execution_token=token,
         )
 
     def insert_job(self, job: JobRecord) -> None:
@@ -92,8 +100,9 @@ class JobRepository:
                     INSERT INTO jobs (
                         job_id, created_at, started_at, completed_at, status,
                         attempt_count, payload_hash, input_path, result_path,
-                        error_code, error_message, cancel_requested, worker_pid
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        error_code, error_message, cancel_requested, worker_pid,
+                        execution_token
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                 (
                     job.job_id,
@@ -109,10 +118,13 @@ class JobRepository:
                     job.error_message,
                     1 if job.cancel_requested else 0,
                     job.worker_pid,
+                    job.execution_token,
                 ),
             )
 
-    def insert_or_get_active(self, job: JobRecord) -> tuple[JobRecord, bool]:
+    def insert_or_get_active(
+        self, job: JobRecord, artifact_checker: Callable[[str], bool] | None = None
+    ) -> tuple[JobRecord, bool]:
         """Atomically insert job if no active job exists with the same payload_hash.
 
         Returns (record, inserted). If an active job already exists, returns (existing, False).
@@ -125,23 +137,30 @@ class JobRepository:
                     """
                     SELECT * FROM jobs
                     WHERE payload_hash = ? AND status IN ('PENDING', 'RUNNING', 'COMPLETED')
-                    ORDER BY created_at DESC
-                    LIMIT 1;
+                    ORDER BY created_at DESC;
                     """,
                     (job.payload_hash,),
                 )
-                row = cursor.fetchone()
-                if row is not None:
-                    conn.commit()
-                    return self._row_to_record(row), False
+                rows = cursor.fetchall()
+                for row in rows:
+                    rec = self._row_to_record(row)
+                    if rec.status in (JobStatus.PENDING, JobStatus.RUNNING):
+                        conn.commit()
+                        return rec, False
+                    if rec.status == JobStatus.COMPLETED and (
+                        artifact_checker is None or artifact_checker(rec.job_id)
+                    ):
+                        conn.commit()
+                        return rec, False
 
                 conn.execute(
                     """
                     INSERT INTO jobs (
                         job_id, created_at, started_at, completed_at, status,
                         attempt_count, payload_hash, input_path, result_path,
-                        error_code, error_message, cancel_requested, worker_pid
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        error_code, error_message, cancel_requested, worker_pid,
+                        execution_token
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                     """,
                     (
                         job.job_id,
@@ -157,6 +176,7 @@ class JobRepository:
                         job.error_message,
                         1 if job.cancel_requested else 0,
                         job.worker_pid,
+                        job.execution_token,
                     ),
                 )
                 conn.commit()
@@ -177,22 +197,29 @@ class JobRepository:
                 return None
             return self._row_to_record(row)
 
-    def find_active_by_payload_hash(self, payload_hash: str) -> JobRecord | None:
+    def find_active_by_payload_hash(
+        self, payload_hash: str, artifact_checker: Callable[[str], bool] | None = None
+    ) -> JobRecord | None:
         """Find an existing active or recently completed job with matching payload hash."""
         with self._connection() as conn:
             cursor = conn.execute(
                 """
                 SELECT * FROM jobs
                 WHERE payload_hash = ? AND status IN ('PENDING', 'RUNNING', 'COMPLETED')
-                ORDER BY created_at DESC
-                LIMIT 1;
+                ORDER BY created_at DESC;
                 """,
                 (payload_hash,),
             )
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_record(row)
+            rows = cursor.fetchall()
+            for row in rows:
+                rec = self._row_to_record(row)
+                if rec.status in (JobStatus.PENDING, JobStatus.RUNNING):
+                    return rec
+                if rec.status == JobStatus.COMPLETED and (
+                    artifact_checker is None or artifact_checker(rec.job_id)
+                ):
+                    return rec
+            return None
 
     def count_pending_jobs(self) -> int:
         """Return the number of jobs currently waiting in PENDING status."""
@@ -201,7 +228,9 @@ class JobRepository:
             row = cursor.fetchone()
             return int(row["cnt"]) if row else 0
 
-    def claim_next_pending_job(self, worker_pid: int) -> JobRecord | None:
+    def claim_next_pending_job(
+        self, worker_pid: int, execution_token: str | None = None
+    ) -> JobRecord | None:
         """Atomically claim the oldest non-canceled PENDING job and transition to RUNNING."""
         now = _utc_now_iso()
         with self._connection() as conn:
@@ -223,10 +252,10 @@ class JobRepository:
                 update_cur = conn.execute(
                     """
                     UPDATE jobs
-                    SET status = 'RUNNING', started_at = ?, worker_pid = ?
+                    SET status = 'RUNNING', started_at = ?, worker_pid = ?, execution_token = ?
                     WHERE job_id = ? AND status = 'PENDING';
                     """,
-                    (now, worker_pid, candidate_id),
+                    (now, worker_pid, execution_token, candidate_id),
                 )
                 if update_cur.rowcount == 0:
                     return None
@@ -257,44 +286,70 @@ class JobRepository:
             cursor = conn.execute("SELECT * FROM jobs WHERE status = 'RUNNING';")
             return [self._row_to_record(row) for row in cursor.fetchall()]
 
-    def mark_completed(self, job_id: str) -> bool:
+    def mark_completed(self, job_id: str, execution_token: str | None = None) -> bool:
         """Mark a RUNNING job as COMPLETED upon successful output write.
 
-        Fails atomically if cancellation has been requested, preventing stale completion.
+        Fails atomically if cancellation has been requested or if execution_token does not match,
+        preventing stale completion across worker generations or restarts.
         """
         now = _utc_now_iso()
         with self._connection() as conn, conn:
-            cur = conn.execute(
-                """
-                UPDATE jobs
-                SET status = 'COMPLETED', completed_at = ?
-                WHERE job_id = ? AND status = 'RUNNING' AND cancel_requested = 0;
-                """,
-                (now, job_id),
-            )
+            if execution_token is not None:
+                cur = conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'COMPLETED', completed_at = ?
+                    WHERE job_id = ?
+                      AND status = 'RUNNING'
+                      AND cancel_requested = 0
+                      AND execution_token = ?;
+                    """,
+                    (now, job_id, execution_token),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'COMPLETED', completed_at = ?
+                    WHERE job_id = ? AND status = 'RUNNING' AND cancel_requested = 0;
+                    """,
+                    (now, job_id),
+                )
             return cur.rowcount > 0
 
-    def mark_failed(self, job_id: str, error_code: str, error_message: str) -> bool:
+    def mark_failed(
+        self,
+        job_id: str,
+        error_code: str,
+        error_message: str,
+        execution_token: str | None = None,
+    ) -> bool:
         """Mark a job as FAILED with diagnostic details.
 
-        Only transitions from PENDING or RUNNING, unless error_code is RESULT_READ_FAILED
-        or RESULT_EXPIRED (recovering corrupted/purged output files).
+        Terminal states (COMPLETED, FAILED, CANCELED) are immutable and cannot be overwritten.
+        Only transitions from PENDING or RUNNING. If execution_token is provided, only matches
+        the active generation.
         """
         now = _utc_now_iso()
         with self._connection() as conn, conn:
-            if error_code in ("RESULT_READ_FAILED", "RESULT_EXPIRED"):
-                status_filter = "status IN ('PENDING', 'RUNNING', 'COMPLETED')"
+            if execution_token is not None:
+                cur = conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'FAILED', completed_at = ?, error_code = ?, error_message = ?
+                    WHERE job_id = ? AND status IN ('PENDING', 'RUNNING') AND execution_token = ?;
+                    """,
+                    (now, error_code, error_message, job_id, execution_token),
+                )
             else:
-                status_filter = "status IN ('PENDING', 'RUNNING')"
-
-            cur = conn.execute(
-                f"""
-                UPDATE jobs
-                SET status = 'FAILED', completed_at = ?, error_code = ?, error_message = ?
-                WHERE job_id = ? AND {status_filter};
-                """,
-                (now, error_code, error_message, job_id),
-            )
+                cur = conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'FAILED', completed_at = ?, error_code = ?, error_message = ?
+                    WHERE job_id = ? AND status IN ('PENDING', 'RUNNING');
+                    """,
+                    (now, error_code, error_message, job_id),
+                )
             return cur.rowcount > 0
 
     def request_cancellation(self, job_id: str) -> tuple[bool, JobRecord | None]:

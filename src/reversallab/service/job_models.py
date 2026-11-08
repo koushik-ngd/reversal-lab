@@ -36,6 +36,7 @@ class JobRecord:
     error_message: str | None = None
     cancel_requested: bool = False
     worker_pid: int | None = None
+    execution_token: str | None = None
 
 
 class JobLinks(BaseModel):
@@ -66,6 +67,9 @@ class JobStatusResponse(BaseModel):
 
     job_id: str = Field(description="Job identifier.")
     status: JobStatus = Field(description="Current lifecycle status.")
+    artifact_available: bool = Field(
+        default=True, description="Whether the result artifact is currently available on storage."
+    )
     created_at: str = Field(description="Submission timestamp.")
     started_at: str | None = Field(default=None, description="Execution start timestamp.")
     completed_at: str | None = Field(default=None, description="Completion timestamp.")

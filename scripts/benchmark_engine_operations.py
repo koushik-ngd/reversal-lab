@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -159,11 +160,10 @@ def run_operational_benchmark() -> dict[str, Any]:
                 completed_count += 1
 
                 # Calculate queue wait and execution time from ISO timestamps
-                t_created = time.mktime(time.strptime(st["created_at"][:19], "%Y-%m-%dT%H:%M:%S"))
-                t_started = time.mktime(time.strptime(st["started_at"][:19], "%Y-%m-%dT%H:%M:%S"))
-                t_completed = time.mktime(
-                    time.strptime(st["completed_at"][:19], "%Y-%m-%dT%H:%M:%S")
-                )
+                # with microsecond subsecond precision
+                t_created = datetime.fromisoformat(st["created_at"]).timestamp()
+                t_started = datetime.fromisoformat(st["started_at"]).timestamp()
+                t_completed = datetime.fromisoformat(st["completed_at"]).timestamp()
 
                 queue_wait_times_ms.append((t_started - t_created) * 1000.0)
                 exec_times_ms.append((t_completed - t_started) * 1000.0)

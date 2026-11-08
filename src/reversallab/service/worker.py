@@ -19,24 +19,40 @@ from reversallab.service.job_repository import JobRepository
 from reversallab.service.schemas import PolicyComparisonRequest
 
 
-def execute_job(job_id: str, input_path: Path, result_path: Path, db_path: Path) -> int:
+def execute_job(
+    job_id: str,
+    input_path: Path,
+    result_path: Path,
+    db_path: Path,
+    execution_token: str | None = None,
+) -> int:
     """Execute evaluation job isolated in this dedicated child process.
 
     Returns:
         0: Job completed successfully and was committed to SQLite.
         1: Job failed with an unhandled exception or data error.
-        2: Job execution was fenced/aborted because cancellation was requested.
+        2: Job execution was fenced/aborted because cancellation was requested or token mismatch.
     """
     repo = JobRepository(db_path)
 
     try:
-        # Pre-execution fence: ensure job is still valid and not canceled
+        # Pre-execution fence: ensure job is still valid, not canceled, and generation token matches
         rec = repo.get_job(job_id)
-        if rec is None or rec.status != JobStatus.RUNNING or rec.cancel_requested:
+        if (
+            rec is None
+            or rec.status != JobStatus.RUNNING
+            or rec.cancel_requested
+            or (execution_token is not None and rec.execution_token != execution_token)
+        ):
             return 2
 
         if not input_path.exists():
-            repo.mark_failed(job_id, "INPUT_FILE_NOT_FOUND", f"Input file missing: {input_path}")
+            repo.mark_failed(
+                job_id,
+                "INPUT_FILE_NOT_FOUND",
+                f"Input file missing: {input_path}",
+                execution_token=execution_token,
+            )
             return 1
 
         with open(input_path, encoding="utf-8") as f:
@@ -86,9 +102,14 @@ def execute_job(job_id: str, input_path: Path, result_path: Path, db_path: Path)
 
         result_data = report.to_dict()
 
-        # Post-computation fence: check cancellation before disk/db commit
+        # Post-computation fence: check cancellation and generation token before disk/db commit
         rec = repo.get_job(job_id)
-        if rec is None or rec.status != JobStatus.RUNNING or rec.cancel_requested:
+        if (
+            rec is None
+            or rec.status != JobStatus.RUNNING
+            or rec.cancel_requested
+            or (execution_token is not None and rec.execution_token != execution_token)
+        ):
             return 2
 
         # Atomic write of result JSON
@@ -112,10 +133,10 @@ def execute_job(job_id: str, input_path: Path, result_path: Path, db_path: Path)
 
         tmp_path.replace(result_path)
 
-        # Mark completed in DB atomically (checks cancel_requested == 0)
-        completed = repo.mark_completed(job_id)
+        # Mark completed in DB atomically (checks cancel_requested == 0 and generation token)
+        completed = repo.mark_completed(job_id, execution_token=execution_token)
         if not completed:
-            # Cancellation was requested right as output was replaced
+            # Cancellation was requested or token expired right as output was replaced
             with contextlib.suppress(OSError):
                 result_path.unlink()
             return 2
@@ -124,8 +145,13 @@ def execute_job(job_id: str, input_path: Path, result_path: Path, db_path: Path)
 
     except Exception as exc:
         rec = repo.get_job(job_id)
-        if rec and not rec.cancel_requested and rec.status == JobStatus.RUNNING:
-            repo.mark_failed(job_id, type(exc).__name__, str(exc))
+        if (
+            rec
+            and not rec.cancel_requested
+            and rec.status == JobStatus.RUNNING
+            and (execution_token is None or rec.execution_token == execution_token)
+        ):
+            repo.mark_failed(job_id, type(exc).__name__, str(exc), execution_token=execution_token)
         return 1
 
 
@@ -135,9 +161,21 @@ def main() -> None:
     parser.add_argument("--input-path", required=True, type=Path, help="Path to input JSON")
     parser.add_argument("--result-path", required=True, type=Path, help="Path to output JSON")
     parser.add_argument("--db-path", required=True, type=Path, help="Path to SQLite database")
+    parser.add_argument(
+        "--execution-token",
+        required=False,
+        default=None,
+        help="Supervisor generation fence token",
+    )
 
     args = parser.parse_args()
-    code = execute_job(args.job_id, args.input_path, args.result_path, args.db_path)
+    code = execute_job(
+        args.job_id,
+        args.input_path,
+        args.result_path,
+        args.db_path,
+        execution_token=args.execution_token,
+    )
     sys.exit(code)
 
 
