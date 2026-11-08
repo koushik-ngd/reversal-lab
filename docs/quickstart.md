@@ -189,7 +189,7 @@ uv build --wheel
 uv venv .smoke_env
 
 # 3. Install the built wheel into the isolated virtual environment via uv
-uv pip install --python .smoke_env dist/reversallab-0.1.0.dev0-py3-none-any.whl
+uv pip install --python .smoke_env dist/reversallab-0.1.0rc1-py3-none-any.whl
 
 # 4. Verify public SDK import and CLI execution
 uv run --no-project --python .smoke_env python -c "import reversallab as rl; print(rl.__version__)"

@@ -1,6 +1,6 @@
 [project]
 name = "reversallab"
-version = "0.1.0.dev0"
+version = "0.1.0rc1"
 description = "Statistically grounded off-policy evaluation and deployment-decision robustness analysis."
 readme = "README.md"
 license = "MIT"

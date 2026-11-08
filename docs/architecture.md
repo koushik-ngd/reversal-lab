@@ -1,6 +1,6 @@
 # Architecture
 
-Status: describes the codebase as of Milestone M5A (`0.1.0.dev0`).
+Status: describes the codebase as of Milestone M7A (`0.1.0rc1`).
 
 ## Layering
 

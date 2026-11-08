@@ -6,7 +6,7 @@ This document describes the public Python API exposed by ReversalLab (`reversall
 
 ## Package Versioning vs. Schema Versioning
 
-- **Python Package Version (`__version__`):** `0.1.0.dev0` (prerelease development library).
+- **Python Package Version (`__version__`):** `0.1.0rc1` (prerelease candidate).
 - **Report Schema Version (`SDK_SCHEMA_VERSION`):** `1.0.0` (frozen, versioned JSON contract for audit artifacts).
 
 ---

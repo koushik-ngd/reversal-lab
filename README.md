@@ -68,7 +68,7 @@ uv build --wheel
 
 # Create an isolated environment and install wheel via uv
 uv venv .smoke_env
-uv pip install --python .smoke_env dist/reversallab-0.1.0.dev0-py3-none-any.whl
+uv pip install --python .smoke_env dist/reversallab-0.1.0rc1-py3-none-any.whl
 
 # Verify execution in the isolated environment
 uv run --no-project --python .smoke_env python -m reversallab.cli run-example --output .smoke_env/report.json
@@ -240,12 +240,25 @@ ReversalLab was developed through seven audited empirical milestones:
 
 ---
 
-## 12. Scientific Scope & Limitations
+## 12. Scientific Scope, Distinctions & Limitations
 
-- **Supported:** Asymptotically valid paired difference confidence intervals via Doubly Robust estimation with K-fold cross-fitting, under unconfoundedness, positive propensity support, and correctly specified logging probabilities.
-- **Supported:** Exact boundary minima for forward worst-case bounds under 1-D mixture perturbations due to concavity of the lower confidence bound.
-- **Equivalence Note:** In 1-D two-stratum mixture shifts, inverse reversal thresholding and forward robust-value checks yield identical binary deployment decisions at budget $\epsilon_{\text{deploy}}$. Interpretability advantages of distance reporting are proposed conceptual benefits, not experimentally established user advantages.
-- **Limitations:** Does not establish safety against unobserved confounding, continuous non-parametric density drift, or multidimensional demographic shifts beyond the evaluated partition.
+### Established Foundations vs. Engineering Contributions
+- **Established Off-Policy Estimators**: Inverse Propensity Scoring (Horvitz & Thompson, 1952), Self-Normalized IPS (Hajek, 1964), Direct Method regression modeling, Doubly Robust estimation (Cassy & Robins, 1994; Bang & Robins, 2005), and out-of-fold cross-fitting (Chernozhukov et al., 2018) are classical foundational techniques.
+- **ReversalLab Engineering Contributions**: ReversalLab integrates these estimators into an end-to-end audit framework providing multi-factor diagnostic gating (propensity overlap, Kish ESS, weight concentration), closed-form 1-D demographic mixture reversal search, Bonferroni-corrected simultaneous confidence bands, and a bounded persistent execution engine.
+
+### Empirical Findings vs. Open Hypotheses
+- **Empirical Simulation Results**: Across controlled synthetic environments (Experiments 001–007), $K$-fold cross-fitting consistently eliminated optimism bias from in-sample reward overfit, and analytical root-finding reached 100% binary decision agreement with forward robust mixture evaluation across 5,000 Monte Carlo replications in 1-D linear mixtures.
+- **Open Scientific Hypotheses**: Whether distance-to-failure metrics ($d^* = |q^* - q_0|$) enhance practitioner decision quality or reduce erroneous ML deployments compared to standard worst-case bounds in live industrial A/B environments is an open human-factors and empirical research question. Generalization of closed-form reversal search to non-convex, high-dimensional uncertainty sets remains an open theoretical direction.
+
+### Confidence Interval Limitations & Transportability
+- **Asymptotic Limitations**: All reported confidence intervals are asymptotic Wald intervals based on the Central Limit Theorem and empirical influence scores. They do not constitute finite-sample concentration guarantees; in the presence of heavy-tailed importance weights or extreme overlap violations, empirical coverage may fall below nominal $1 - \alpha$.
+- **Transportability Requirements**: Policy advantage guarantees under demographic mixture shift require **pure covariate shift**: the conditional outcome distribution $\mathbb{P}(Y \mid X, A)$ must remain strictly invariant across strata, and propensity positivity must hold in the target population. If unobserved confounding or concept drift occurs, guarantees do not apply.
+
+### Cross-Platform Numerical Tolerances
+- Point estimates and interval bounds are deterministic under fixed random seeds on identical hardware, OS, and Python environments. Across different operating systems (Windows, Linux, macOS) or linear algebra libraries (OpenBLAS, Intel MKL, Apple Accelerate), floating-point accumulation orders may cause slight numerical discrepancies. ReversalLab guarantees agreement within standard numerical tolerances ($\le 10^{-4}$ relative tolerance or $\le 10^{-5}$ absolute tolerance), rather than universal bit-for-bit identity across disparate platforms.
+
+### Service Security & Deployment Model
+- ReversalLab is explicitly designed and certified for **Deployment Model A: Trusted-Local / Single-Tenant Execution**. It is NOT internet-ready or multi-tenant. The service binds exclusively to loopback (`127.0.0.1`) by default. Any public or multi-tenant deployment must operate behind an authenticating reverse proxy providing TLS termination, authorization, and rate limiting.
 
 ---
 

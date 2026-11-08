@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - High-level ergonomic interfaces: [`BanditDataset`](docs/api_reference.md#1-data-contract-banditdataset), [`PolicyValueEvaluator`](docs/api_reference.md#2-single-policy-evaluation-policyvalueevaluator), and [`PolicyComparison`](docs/api_reference.md#3-paired-comparison--decision-reversal-policycomparison).
 - Policy implementations: `UniformPolicy`, `LinearSoftmaxPolicy`, `EpsilonGreedyLinearPolicy`.
 - Frozen machine-readable JSON report schema (`v1.0.0`) with ASCII summary formatting.
-- Explicit distinction between package version (`0.1.0.dev0` / `0.1.0rc1`) and JSON report schema version (`1.0.0`).
+- Explicit distinction between package version (`0.1.0rc1`) and JSON report schema version (`1.0.0`).
 
 #### Command-Line Interface & Tutorials
 - Unified CLI (`reversallab`) supporting research reproduction (`validate-estimators`, `run-reversal`, `report`, `run-example`, `serve`).

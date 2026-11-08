@@ -51,7 +51,7 @@ Once running:
 - `GET /version`: Semantic version identifiers for package, schema, and API.
   ```json
   {
-    "version": "0.1.0.dev0",
+    "version": "0.1.0rc1",
     "schema_version": "1.0.0",
     "api_version": "v1"
   }
