@@ -46,7 +46,7 @@ All reviewers should reference the [External Review Guide](external_review_guide
 4. **Empirical Monte Carlo Reproduction**:
    - Execute the 5,000 Monte Carlo replication benchmark:
      ```bash
-     uv run reversallab run-reversal --config configs/experiments/007_independent_reliability.yaml
+     uv run reversallab run-independent-reliability --config configs/experiments/007_independent_reliability.yaml
      ```
    - Verify that decision agreement between inverse reversal search and forward robust mixture evaluation is 100% across all replications.
 
@@ -201,3 +201,79 @@ All reviewers should reference the [External Review Guide](external_review_guide
    - Test compute budget ceiling: Attempt submitting budget $> 50{,}000{,}000 \implies$ rejected with HTTP 422.
    - Test path traversal protection: Attempt `GET /v1/jobs/../../etc/passwd` or `..\..\windows` $\implies$ rejected with HTTP 422 / 400.
    - Confirm lack of multi-tenant authentication: Verify that documentation explicitly mandates reverse proxy (TLS, auth, rate limiting) for non-loopback exposure.
+
+---
+
+## 4. Role-Specific Onboarding Messages (Draft Invitations)
+
+> [!CAUTION]
+> **Maintainer Instruction**: These draft invitation messages are prepared for authorized dispatch only. Do NOT send invitations or invite GitHub collaborators without explicit project authorization.
+
+### Track A: Statistical ML Researcher Onboarding Message
+```text
+Subject: ReversalLab v0.1.0-rc1 External Research Review Invitation
+
+Dear Colleague,
+
+We would appreciate your independent expert review of ReversalLab (v0.1.0-rc1), an open-source Python library for statistically grounded off-policy evaluation (OPE) of contextual bandits and decision-reversal robustness analysis.
+
+Repository & Prerelease:
+https://github.com/koushik-ngd/reversal-lab/releases/tag/v0.1.0-rc1
+
+Reviewer Protocol:
+https://github.com/koushik-ngd/reversal-lab/blob/master/docs/reviewer_tracks.md#track-a-statistical-ml-researcher-review-protocol
+
+We specifically invite your critical scrutiny of:
+1. Causal identification and support assumptions for IPS, SNIPS, DM, and DR.
+2. Out-of-fold K-fold cross-fitting mechanics to confirm elimination of target leakage.
+3. Dual certification: verifying that inverse reversal search (distance-to-failure d*) and forward worst-case robust mixture evaluation yield identical binary decisions in 1-D linear mixtures.
+4. Ensuring Wald confidence intervals and transportability under demographic shift are accurately qualified without overclaiming.
+
+Please submit findings using our standardized review template (docs/reviewer_feedback_template.md). Thank you for your time and research rigor!
+```
+
+### Track B: Python Packaging Engineer Onboarding Message
+```text
+Subject: ReversalLab v0.1.0-rc1 Packaging & SDK Usability Review Invitation
+
+Dear Colleague,
+
+We invite you to review the packaging, dependency hygiene, and public SDK usability of ReversalLab (v0.1.0-rc1).
+
+Repository & Prerelease Assets:
+https://github.com/koushik-ngd/reversal-lab/releases/tag/v0.1.0-rc1
+
+Reviewer Protocol:
+https://github.com/koushik-ngd/reversal-lab/blob/master/docs/reviewer_tracks.md#track-b-python-package-engineer-review-protocol
+
+Key areas for evaluation:
+1. Clean-room wheel installation in isolated Python 3.11/3.12 environments.
+2. Dependency footprint (core dependencies vs optional service extras).
+3. Public SDK ergonomics (BanditDataset, PolicyComparison, exception clarity).
+4. Frozen JSON report contract schema (v1.0.0) and CLI entrypoint wiring.
+
+Please document your evaluation in docs/reviewer_feedback_template.md. Thank you for helping ensure high-quality open-source software standards!
+```
+
+### Track C: Backend & ML Infrastructure Engineer Onboarding Message
+```text
+Subject: ReversalLab v0.1.0-rc1 Service Reliability & Infrastructure Review Invitation
+
+Dear Colleague,
+
+We invite your technical evaluation of ReversalLab's persistent asynchronous background job engine and FastAPI service architecture (v0.1.0-rc1).
+
+Repository & Prerelease:
+https://github.com/koushik-ngd/reversal-lab/releases/tag/v0.1.0-rc1
+
+Reviewer Protocol:
+https://github.com/koushik-ngd/reversal-lab/blob/master/docs/reviewer_tracks.md#track-c-backend--ml-infrastructure-engineer-review-protocol
+
+Key areas for evaluation:
+1. SQLite WAL metadata persistence, busy-timeout handling, and atomic artifact persistence.
+2. Single-supervisor leader election using non-blocking advisory file locks across multiple Uvicorn workers.
+3. Process-isolated child worker execution and targeted job cancellation.
+4. Crash recovery mechanics and Deployment Model A (trusted-local / single-tenant loopback boundary).
+
+Please record any anomalies or feedback in docs/reviewer_feedback_template.md. We appreciate your infrastructure expertise!
+```

@@ -99,19 +99,19 @@ uv run reversallab validate-estimators --config configs/experiments/001_estimato
 uv run reversallab compare-reference --config configs/experiments/002_open_bandit_parity.yaml
 
 # Experiment 003: Advanced estimators (DM, DR with K-fold cross-fitting)
-uv run reversallab validate-estimators --config configs/experiments/003_advanced_estimators.yaml
+uv run reversallab validate-advanced-estimators --config configs/experiments/003_advanced_estimators.yaml
 
 # Experiment 004: Uncertainty calibration and Wald coverage
-uv run reversallab validate-estimators --config configs/experiments/004_uncertainty_calibration.yaml
+uv run reversallab calibrate-uncertainty --config configs/experiments/004_uncertainty_calibration.yaml
 
 # Experiment 005: Prototype 1-D reversal search
 uv run reversallab run-reversal --config configs/experiments/005_reversal_prototype.yaml
 
 # Experiment 006: Analytical root-finding & simultaneous band validation
-uv run reversallab run-reversal --config configs/experiments/006_reversal_validation.yaml
+uv run reversallab run-reliability --config configs/experiments/006_reversal_validation.yaml
 
 # Experiment 007: Independent reliability (5,000 Monte Carlo replications)
-uv run reversallab run-reversal --config configs/experiments/007_independent_reliability.yaml
+uv run reversallab run-independent-reliability --config configs/experiments/007_independent_reliability.yaml
 ```
 
 ---
@@ -181,12 +181,14 @@ All external reviewers should submit their findings using the standardized templ
 The protocol for evaluating the human interpretability and decision accuracy of distance-to-reversal metrics vs. forward worst-case bounds is detailed in:
 - **[Scientific Usefulness Study Design](study_design_usefulness.md)**.
 
-### Issue Prioritization & Triage SLA
-Reported issues will be triaged according to the following SLA matrix:
+### Issue Prioritization & Best-Effort Maintenance Policy
+As an open-source academic research project, ReversalLab is maintained on a **sustainable best-effort** basis by project maintainers and volunteer contributors. Reported issues are triaged according to scientific and operational impact:
 
-| Priority | Definition | Examples | Response / Resolution SLA |
+| Priority | Classification | Criteria | Target Resolution Process |
 | :---: | :--- | :--- | :--- |
-| **P0 (Blocker)** | Data corruption, memory leaks, security bypass, worker hang with zero recovery, invalid statistical math producing false positives. | Flawed cross-fitting fold assignment, unbounded memory growth under load. | Ack within 2 hours; hotfix or patch release within 24 hours. |
-| **P1 (High)** | Diagnostic false negatives, unhandled crashes on valid inputs, edge-case race conditions under concurrency, critical documentation omissions. | Kish ESS calculation failure, supervisor election deadlock on NFS. | Ack within 12 hours; resolution within 3 business days. |
-| **P2 (Medium)** | Non-blocking exception tracebacks, missing CLI help text, minor documentation typos, non-blocking test flakes on specific OS versions. | Unclear validation message, missing parameter description. | Ack within 24 hours; resolved in next planned release candidate. |
-| **P3 (Low)** | Code refactoring, non-urgent feature requests (multidimensional reversal, new estimators), performance micro-optimizations. | Request for Wasserstein metric support. | Triaged for future roadmap (v0.2.0+). |
+| **P0 (Blocker)** | Critical Correctness / Security | Flawed statistical math producing false superiority claims, data corruption, memory leaks, security boundary bypass. | Prioritized immediately for triage; hotfix or patch release candidate prepared as top priority. |
+| **P1 (High)** | Software Defect / Reliability | Diagnostic false negatives, reproducible crashes on valid inputs, concurrency race conditions, documentation omissions leading to misuse. | Triaged within active development sprint; targeted for resolution in subsequent release candidate. |
+| **P2 (Medium)** | Usability / Documentation | Non-blocking exception tracebacks, missing CLI parameter descriptions, documentation typos, OS-specific non-blocking test flakes. | Reviewed and integrated during regular release maintenance cycles. |
+| **P3 (Low)** | Feature Suggestion / Polish | Code refactoring, performance micro-optimizations, feature requests for multidimensional reversal sets. | Backlogged on GitHub Issues for community discussion and future roadmap planning (v0.2.0+). |
+
+For full classification definitions and review triage procedures, see [`docs/issue_triage_policy.md`](issue_triage_policy.md).

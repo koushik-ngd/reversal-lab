@@ -218,11 +218,11 @@ ReversalLab was developed through seven audited empirical milestones:
 |---|---|---|---|
 | **001** | Estimator Validation | Finite-sample bias, variance, and MSE of IPS and SNIPS across sample sizes. | `uv run reversallab validate-estimators --config configs/experiments/001_estimator_validation.yaml` |
 | **002** | Reference Parity | Numerical parity comparison against Open Bandit Pipeline (OBP) reference estimators. | `uv run reversallab compare-reference --config configs/experiments/002_open_bandit_parity.yaml` |
-| **003** | Advanced Estimators | DM and DR evaluation with leakage-safe K-fold cross-fitting and misspecification tests. | `uv run reversallab validate-estimators --config configs/experiments/003_advanced_estimators.yaml` |
-| **004** | Uncertainty Calibration | Coverage and reliability audit of Wald intervals, influence scores, and bootstrap resamples. | `uv run reversallab validate-estimators --config configs/experiments/004_uncertainty_calibration.yaml` |
+| **003** | Advanced Estimators | DM and DR evaluation with leakage-safe K-fold cross-fitting and misspecification tests. | `uv run reversallab validate-advanced-estimators --config configs/experiments/003_advanced_estimators.yaml` |
+| **004** | Uncertainty Calibration | Coverage and reliability audit of Wald intervals, influence scores, and bootstrap resamples. | `uv run reversallab calibrate-uncertainty --config configs/experiments/004_uncertainty_calibration.yaml` |
 | **005** | Decision-Reversal Prototype | Prototype 1-D context mixture perturbation search and margin-crossing detection. | `uv run reversallab run-reversal --config configs/experiments/005_reversal_prototype.yaml` |
-| **006** | Mathematical Validation | Analytical reversal root-finding and simultaneous confidence band certification. | `uv run reversallab run-reversal --config configs/experiments/006_reversal_validation.yaml` |
-| **007** | Independent Reliability | 5,000 Monte Carlo replications comparing inverse reversal distance and forward robust baselines. | `uv run reversallab run-reversal --config configs/experiments/007_independent_reliability.yaml` |
+| **006** | Mathematical Validation | Analytical reversal root-finding and simultaneous confidence band certification. | `uv run reversallab run-reliability --config configs/experiments/006_reversal_validation.yaml` |
+| **007** | Independent Reliability | 5,000 Monte Carlo replications comparing inverse reversal distance and forward robust baselines. | `uv run reversallab run-independent-reliability --config configs/experiments/007_independent_reliability.yaml` |
 
 ---
 
@@ -237,6 +237,7 @@ ReversalLab was developed through seven audited empirical milestones:
 - [`docs/reviewer_tracks.md`](docs/reviewer_tracks.md): Role-specific review protocols (Tracks A, B, C).
 - [`docs/reviewer_feedback_template.md`](docs/reviewer_feedback_template.md): Standardized reviewer evaluation template.
 - [`docs/study_design_usefulness.md`](docs/study_design_usefulness.md): Scientific usefulness and interpretability study design.
+- [`docs/issue_triage_policy.md`](docs/issue_triage_policy.md): Review issue intake, classification, and triage policy.
 - [`docs/methodology.md`](docs/methodology.md): Formal definitions of estimators and mixture perturbations.
 - [`docs/data_contract.md`](docs/data_contract.md): Field-by-field array contracts and validation rules.
 - [`docs/assumptions.md`](docs/assumptions.md): Supported statistical claims vs. deliberate limitations.
