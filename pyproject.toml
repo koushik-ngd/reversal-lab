@@ -7,9 +7,19 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "ReversalLab contributors" }]
+keywords = [
+    "causal-inference",
+    "contextual-bandits",
+    "decision-reversal",
+    "doubly-robust",
+    "off-policy-evaluation",
+    "reinforcement-learning",
+    "robust-optimization",
+]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -23,8 +33,16 @@ dependencies = [
     "scikit-learn>=1.9.1",
 ]
 
+[project.urls]
+Homepage = "https://github.com/koushik-ngd/reversal-lab"
+Documentation = "https://github.com/koushik-ngd/reversal-lab#readme"
+Repository = "https://github.com/koushik-ngd/reversal-lab.git"
+Issues = "https://github.com/koushik-ngd/reversal-lab/issues"
+Changelog = "https://github.com/koushik-ngd/reversal-lab/blob/master/CHANGELOG.md"
+
 [project.scripts]
 reversallab = "reversallab.cli:main"
+reversallab-service = "reversallab.cli:main_service"
 
 [project.optional-dependencies]
 service = [

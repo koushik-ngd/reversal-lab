@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -273,3 +274,27 @@ def test_run_example_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     assert "diagnostics" in payload
     assert "paired_advantage" in payload
     assert "reversal_search" in payload
+
+
+def test_serve_cli_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: dict[str, Any] = {}
+
+    def mock_run(target: str, host: str, port: int, reload: bool) -> None:
+        called["target"] = target
+        called["host"] = host
+        called["port"] = port
+
+    import uvicorn
+
+    monkeypatch.setattr(uvicorn, "run", mock_run)
+    from reversallab.cli import main_service
+
+    code = main(["serve", "--host", "127.0.0.1", "--port", "8008"])
+    assert code == 0
+    assert called["target"] == "reversallab.service.app:app"
+    assert called["host"] == "127.0.0.1"
+    assert called["port"] == 8008
+
+    code2 = main_service(["--host", "127.0.0.1", "--port", "8009"])
+    assert code2 == 0
+    assert called["port"] == 8009

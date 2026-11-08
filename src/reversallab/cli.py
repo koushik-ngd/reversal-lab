@@ -546,6 +546,30 @@ def _cmd_run_example(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print(
+            "error: Service dependencies missing. Install with: pip install 'reversallab[service]'",
+            file=sys.stderr,
+        )
+        return 1
+
+    import os
+
+    if args.storage_dir:
+        os.environ["REVERSALLAB_STORAGE_DIR"] = str(args.storage_dir)
+
+    uvicorn.run(
+        "reversallab.service.app:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="reversallab",
@@ -736,6 +760,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ex.set_defaults(func=_cmd_run_example)
 
+    p_srv = sub.add_parser(
+        "serve",
+        help="Launch the ReversalLab evaluation service.",
+        description="Start the local FastAPI evaluation service.",
+    )
+    p_srv.add_argument(
+        "--host", default="127.0.0.1", help="Host interface to bind (default: 127.0.0.1)."
+    )
+    p_srv.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000).")
+    p_srv.add_argument(
+        "--storage-dir",
+        default=None,
+        help="Directory for persistent SQLite metadata and report storage.",
+    )
+    p_srv.add_argument(
+        "--reload", action="store_true", help="Enable hot-reloading for development."
+    )
+    p_srv.set_defaults(func=_cmd_serve)
+
     return parser
 
 
@@ -753,6 +796,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     return result
+
+
+def main_service(argv: Sequence[str] | None = None) -> int:
+    """Standalone entrypoint for reversallab-service script."""
+    parser = argparse.ArgumentParser(
+        prog="reversallab-service",
+        description="Launch the ReversalLab evaluation service.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="Host interface to bind (default: 127.0.0.1)."
+    )
+    parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000).")
+    parser.add_argument(
+        "--storage-dir",
+        default=None,
+        help="Directory for persistent SQLite metadata and report storage.",
+    )
+    parser.add_argument(
+        "--reload", action="store_true", help="Enable hot-reloading for development."
+    )
+    args = parser.parse_args(argv)
+    return _cmd_serve(args)
 
 
 if __name__ == "__main__":  # pragma: no cover

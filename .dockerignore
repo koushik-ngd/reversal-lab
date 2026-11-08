@@ -20,7 +20,10 @@ data/
 notebooks/
 experiments/
 
-# Temporary or editor files
+# Temporary, storage, or editor files
+var/
+storage/
+*.db
 .idea/
 .vscode/
 .DS_Store
