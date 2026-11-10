@@ -108,7 +108,7 @@ uv run reversallab calibrate-uncertainty --config configs/experiments/004_uncert
 uv run reversallab run-reversal --config configs/experiments/005_reversal_prototype.yaml
 
 # Experiment 006: Analytical root-finding & simultaneous band validation
-uv run reversallab run-reliability --config configs/experiments/006_reversal_validation.yaml
+uv run reversallab run-reliability --config configs/experiments/006_reversal_reliability.yaml
 
 # Experiment 007: Independent reliability (5,000 Monte Carlo replications)
 uv run reversallab run-independent-reliability --config configs/experiments/007_independent_reliability.yaml
@@ -173,9 +173,10 @@ Detailed protocols tailored to specific technical specialties are provided in:
   - **Track B**: Python Package Engineer (Isolated installation, dependency footprints, typing compliance, SDK contracts).
   - **Track C**: Backend/ML Infrastructure Engineer (Persistent SQLite storage, advisory file locks, worker fencing, targeted cancellation, crash recovery).
 
-### Feedback Submission
+### Feedback Submission & Intake Tracking
 All external reviewers should submit their findings using the standardized template:
 - **[Reviewer Feedback Template](reviewer_feedback_template.md)**: Captures environment configuration, tasks attempted, observed numerical outputs, bugs encountered, and overall readiness verdict.
+- **[External Review Intake Log](review_intake_log.md)**: Tracks incoming review submissions, reproducibility results, defect severities, and release recommendations.
 
 ### Empirical Usefulness Evaluation
 The protocol for evaluating the human interpretability and decision accuracy of distance-to-reversal metrics vs. forward worst-case bounds is detailed in:

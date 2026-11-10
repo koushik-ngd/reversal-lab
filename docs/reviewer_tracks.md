@@ -181,7 +181,7 @@ All reviewers should reference the [External Review Guide](external_review_guide
    - Submit a compute-intensive job ($N = 25{,}000$, $K$-fold cross-fitting, grid search).
    - Issue cancellation request: `DELETE /v1/jobs/{job_id}`.
    - Verify cancellation confirmation:
-     - Worker process terminated promptly (target p50 latency $\le 100\text{ ms}$).
+     - Worker process terminated promptly (measured reference baseline: p50 = $84.89\text{ ms}$, p95 = $105.81\text{ ms}$ on test hardware; actual cancellation confirmation latency depends on OS process management and scheduler dynamics).
      - SQLite status transitioned to `CANCELLED`.
      - No orphan child processes remaining in OS process table.
      - Sibling evaluations continue uninterrupted.
@@ -204,10 +204,10 @@ All reviewers should reference the [External Review Guide](external_review_guide
 
 ---
 
-## 4. Role-Specific Onboarding Messages (Draft Invitations)
+## 4. Role-Specific Onboarding Messages (Draft Invitations) & Task Checklists
 
 > [!CAUTION]
-> **Maintainer Instruction**: These draft invitation messages are prepared for authorized dispatch only. Do NOT send invitations or invite GitHub collaborators without explicit project authorization.
+> **Maintainer Instruction**: These draft invitation messages and task checklists are prepared for authorized dispatch only. Do NOT send invitations or invite GitHub collaborators without explicit project authorization. Completed external reviews are cataloged in [docs/review_intake_log.md](review_intake_log.md).
 
 ### Track A: Statistical ML Researcher Onboarding Message
 ```text
@@ -232,6 +232,22 @@ We specifically invite your critical scrutiny of:
 Please submit findings using our standardized review template (docs/reviewer_feedback_template.md). Thank you for your time and research rigor!
 ```
 
+#### Track A Actionable Task Checklist
+- [ ] **Step 1: Environment Setup**: Clone repository or unpack release tarball; ensure Python 3.11+ and `uv` are available. Run `uv sync`.
+- [ ] **Step 2: Identification & Assumption Audit**: Read `docs/inference_assumptions.md` and `docs/assumptions.md`. Verify positivity checks, overlap diagnostics, and out-of-fold cross-fitting in `src/reversallab/advanced_estimators.py`.
+- [ ] **Step 3: Dual Equivalence Verification**: Audit Theorem 1 in `docs/reviewer_tracks.md`. Confirm that inverse distance-to-reversal $d^*$ and forward robust bound $\Delta_{\text{worst}}(\epsilon)$ yield identical binary decisions on 1-D demographic mixtures.
+- [ ] **Step 4: Statistical Benchmark Reproduction**:
+  - `uv run reversallab validate-estimators --config configs/experiments/001_estimator_validation.yaml` (Exp 001 — basic estimators)
+  - `uv run reversallab compare-reference --config configs/experiments/002_open_bandit_parity.yaml` (Exp 002 — reference baseline)
+  - `uv run reversallab validate-advanced-estimators --config configs/experiments/003_advanced_estimators.yaml` (Exp 003 — cross-fitting)
+  - `uv run reversallab calibrate-uncertainty --config configs/experiments/004_uncertainty_calibration.yaml` (Exp 004 — coverage calibration)
+  - `uv run reversallab run-reversal --config configs/experiments/005_reversal_prototype.yaml` (Exp 005 — reversal search)
+  - `uv run reversallab run-reliability --config configs/experiments/006_reversal_reliability.yaml` (Exp 006 — reliability)
+  - `uv run reversallab run-independent-reliability --config configs/experiments/007_independent_reliability.yaml` (Exp 007 — independent seed)
+  Confirm all benchmarks pass and numerical results match published tables within tolerance ($\le 10^{-4}$ rel / $\le 10^{-5}$ abs).
+- [ ] **Step 5: Scope & Limitation Check**: Verify that docs accurately state asymptotic Wald bounds rather than claiming finite-sample concentration guarantees.
+- [ ] **Step 6: Submit Review**: Complete sections in `docs/reviewer_feedback_template.md`.
+
 ### Track B: Python Packaging Engineer Onboarding Message
 ```text
 Subject: ReversalLab v0.1.0-rc1 Packaging & SDK Usability Review Invitation
@@ -255,6 +271,18 @@ Key areas for evaluation:
 Please document your evaluation in docs/reviewer_feedback_template.md. Thank you for helping ensure high-quality open-source software standards!
 ```
 
+#### Track B Actionable Task Checklist
+- [ ] **Step 1: Clean-Room Environment**: In an empty directory, create an isolated virtualenv (`python -m venv .clean_env && source .clean_env/bin/activate` or Windows equivalent).
+- [ ] **Step 2: Asset Verification**: Download wheel and sdist from GitHub prerelease `v0.1.0-rc1`. Verify SHA-256 checksums match `SHA256SUMS.txt`.
+- [ ] **Step 3: Installation**: Run `pip install reversallab-0.1.0rc1-py3-none-any.whl`. Confirm zero extraneous dependencies installed for core package.
+- [ ] **Step 4: Public SDK API Check**:
+  - `python -c "import reversallab; print(reversallab.__version__)"`
+  - `python -c "from reversallab import BanditDataset, PolicyComparison, PolicyValueEvaluator, run_quickstart; print('Imports OK')"`
+  - Verify helpful error messages when invalid dataset inputs are provided.
+- [ ] **Step 5: CLI Entrypoint Verification**: Run `reversallab --help`. Verify subcommands and help documentation are clear and accurate.
+- [ ] **Step 6: Schema Contract Verification**: Generate JSON report via `reversallab validate-estimators --output report.json` and verify compliance with schema `src/reversallab/service/schemas/evaluation_v1.0.0.json`.
+- [ ] **Step 7: Submit Review**: Complete sections in `docs/reviewer_feedback_template.md`.
+
 ### Track C: Backend & ML Infrastructure Engineer Onboarding Message
 ```text
 Subject: ReversalLab v0.1.0-rc1 Service Reliability & Infrastructure Review Invitation
@@ -277,3 +305,23 @@ Key areas for evaluation:
 
 Please record any anomalies or feedback in docs/reviewer_feedback_template.md. We appreciate your infrastructure expertise!
 ```
+
+#### Track C Actionable Task Checklist
+- [ ] **Step 1: Service Installation & Health**: Install with service extras (`pip install ".[service]"` or `uv sync --extra service`). Launch `reversallab-service --host 127.0.0.1 --port 8000`. Probe `GET /health`, `GET /version`, `GET /metrics`.
+- [ ] **Step 2: Synchronous Evaluation**: Submit evaluation payload to `POST /v1/evaluate/comparison`. Confirm immediate response and schema validation.
+- [ ] **Step 3: Asynchronous Persistent Job Flow**:
+  - Submit compute payload to `POST /v1/jobs/comparison`. Verify HTTP 202, job ID, and `payload_hash`.
+  - Poll `GET /v1/jobs/{job_id}` through `PENDING` $\to$ `RUNNING` $\to$ `COMPLETED`.
+  - Inspect SQLite metadata in `./var/reversallab/jobs.db` and output artifact in `./var/reversallab/{job_id}/result.json`.
+- [ ] **Step 4: Targeted Cancellation**:
+  - Submit long-running job and issue `DELETE /v1/jobs/{job_id}`.
+  - Verify prompt process termination (reference baseline: p50 = $84.89\text{ ms}$, p95 = $105.81\text{ ms}$ on test hardware).
+  - Verify status transition to `CANCELLED` and absence of orphan worker processes.
+- [ ] **Step 5: Multi-Worker Supervisor Lock & Crash Recovery**:
+  - Launch with multiple workers (`uvicorn reversallab.service.app:app --workers 4`). Verify single supervisor lock holder.
+  - Terminate leader worker and verify advisory lock transfer and recovery of interrupted jobs.
+- [ ] **Step 6: Boundary & Security Auditing**:
+  - Confirm default loopback binding (`127.0.0.1`).
+  - Verify payload size limits ($> 10\text{ MB} \implies 413$) and budget limits ($> 50{,}000{,}000 \implies 422$).
+  - Verify path traversal rejection on `/v1/jobs/..%2F..`.
+- [ ] **Step 7: Submit Review**: Complete sections in `docs/reviewer_feedback_template.md`.

@@ -11,7 +11,7 @@ In 1-D linear demographic mixture models, both formulations yield mathematically
 $$\min_{q \in \mathcal{Q}_\epsilon} \Delta(q) \ge \delta \iff \epsilon^* \ge \epsilon_{\text{deploy}}$$
 
 ### Objective
-This empirical study evaluates whether presenting **Distance-to-Reversal Explanations alongside Forward Worst-Case Bounds** improves human practitioners' comprehension of offline evaluation evidence, reduces erroneous deployment recommendations, and accelerates triage compared to presenting forward worst-case bounds alone.
+This empirical study evaluates the **incremental value of presenting Distance-to-Reversal Explanations alongside Forward Worst-Case Bounds** compared to presenting forward worst-case bounds alone. Specifically, it tests whether augmenting standard robust bounds with distance-to-reversal metrics improves human practitioners' comprehension of offline evaluation evidence, reduces erroneous deployment recommendations, and accelerates triage.
 
 > [!IMPORTANT]
 > **Status: Pre-Registered Experimental Protocol**.  
@@ -30,11 +30,11 @@ A critical conceptual distinction must be maintained throughout this evaluation:
 
 ## 3. Experimental Hypotheses
 
-- **Primary Hypothesis ($H_1$ — Decision Triage Accuracy)**:
-  Participants presented with both the Forward Robust Bound and Distance-to-Reversal metrics (Condition B) will achieve significantly higher accuracy in identifying fragile deployment scenarios (cases where nominal advantage is positive and statistically significant, but demographic tolerance is smaller than anticipated production drift: $\epsilon^* < \epsilon_{\text{deploy}}$) than participants receiving only the Forward Robust Bound (Condition A).
+- **Primary Hypothesis ($H_1$ — Incremental Triage Accuracy)**:
+  Providing the **incremental Distance-to-Reversal explanation** alongside the Forward Robust Bound (Condition B) will significantly improve practitioner decision triage accuracy compared to providing the Forward Robust Bound alone (Condition A), specifically in correctly identifying fragile deployment scenarios (cases where nominal advantage is positive and statistically significant, but demographic tolerance is smaller than anticipated production drift: $\epsilon^* < \epsilon_{\text{deploy}}$).
 
 - **Secondary Hypothesis ($H_2$ — Cognitive Workload & Decision Latency)**:
-  Participants in Condition B will complete evaluation triage with lower subjective cognitive workload (NASA-TLX index) and shorter median decision latencies than participants in Condition A.
+  Participants in Condition B will complete evaluation triage with lower subjective cognitive workload (NASA-TLX index) and shorter median human decision response latencies (measured in seconds from scenario presentation to decision submission) than participants in Condition A.
 
 - **Secondary Hypothesis ($H_3$ — Confidence-Accuracy Calibration)**:
   Participants in Condition B will exhibit superior calibration (lower Brier score) between subjective confidence and actual decision correctness, reducing overconfidence on borderline fragile policies.
@@ -43,18 +43,37 @@ A critical conceptual distinction must be maintained throughout this evaluation:
 
 ## 4. Study Design & Methodology
 
-### 4.1 Design Structure
+### 4.1 Design Structure & Treatment Definition
 - **Design**: Between-subjects randomized controlled trial (A/B testing) with repeated measures across 8 standardized scenarios.
+- **Arms Definition (Incremental Explanation Contrast)**:
+  - **Control Arm (Condition A — Forward Robust Bound)**: Practitioners receive standard off-policy point estimates, 95% Wald confidence intervals, diagnostic overlap/ESS metrics, and the **Forward Worst-Case Robust Bound** $\Delta_{\text{worst}}(\epsilon_{\text{deploy}})$.
+  - **Treatment Arm (Condition B — Incremental Distance-to-Reversal Explanation)**: Practitioners receive identical standard OPE estimates, diagnostic metrics, and the Forward Worst-Case Robust Bound, plus the **incremental Distance-to-Reversal explanation** ($d^* = |q^* - q_0|$, demographic inflection boundary $q^*$, and margin sensitivity interpretation).
 - **Target Population**: $N = 40$–$60$ machine learning practitioners, data scientists, and ML engineering leads with practical experience in offline evaluation or A/B testing.
 - **Randomization Procedure**: Permuted block randomization within prior experience strata (Novice vs. Experienced in causal inference/OPE) using a cryptographically secure random sequence.
 
-### 4.2 Sample Size & Statistical Power Assumptions
-- **A Priori Power Analysis**:
-  - Target effect size: Cohen's $d = 0.50$ (moderate effect) on primary accuracy.
-  - Power level: $1 - \beta = 0.80$.
-  - Significance level: Two-sided $\alpha = 0.05$.
-  - Repeated measures design: 8 scenario evaluations per participant with intra-class correlation $\rho \approx 0.25$.
-  - Minimum required sample size: $N = 44$ participants ($n = 22$ per arm). A recruitment target of $N = 50$ accommodates a $10\%$ dropout or incomplete submission rate.
+### 4.2 Sample Size Target & Simulation-Based Power Analysis Requirements
+- **Provisional Recruitment Target ($N = 50$)**:
+  A total enrollment of $N = 50$ participants ($n = 25$ per arm, generating $50 \times 8 = 400$ scenario evaluations) is established as a **provisional recruitment target**, not an analytically proven adequate sample size.
+- **Why Closed-Form Power Formulas Are Inadequate**:
+  Standard closed-form power calculations (such as Cohen's $d = 0.50$ for paired or repeated $t$-tests) assume continuous, normally distributed responses. In this protocol, the primary outcome is a clustered binary triage decision ($Y_{ij} \in \{0, 1\}$) modeled via a Generalized Linear Mixed Model (GLMM) with a logit link function and participant random effects. In logistic mixed models, statistical power depends non-linearly on:
+  1. Baseline scenario difficulty $p_j$ across the 8 evaluation tasks.
+  2. Between-participant heterogeneity in skill and risk tolerance (participant random-intercept variance $\sigma_u^2$).
+  3. The true odds ratio effect size $\text{OR} = \exp(\beta_1)$ of the incremental explanation.
+- **Simulation-Based Power Protocol Requirements**:
+  Prior to final participant enrollment lock, statistical power must be verified via Monte Carlo simulation:
+  1. **Simulation Grid**:
+     - Candidate participant cohorts: $N \in \{30, 40, 50, 60, 75, 100\}$.
+     - Candidate treatment odds ratios: $\text{OR} \in [1.50, 2.50]$ (representing an incremental triage accuracy improvement from $\approx 65\%$ to $74\%\text{--}82\%$).
+     - Participant random-intercept variance: $\sigma_u^2 \in [0.20, 0.80]$ (corresponding to intra-class correlations $\rho \approx \sigma_u^2 / (\sigma_u^2 + \pi^2/3) \in [0.06, 0.20]$).
+     - Scenario baseline difficulties: $p_j \in [0.40, 0.85]$ across the 8 standardized scenarios.
+  2. **Iteration Count**:
+     - Generate $M \ge 1{,}000$ synthetic datasets for each parameter combination in the simulation grid.
+  3. **Model Fitting & Power Evaluation**:
+     - Fit the pre-registered logistic mixed-effects model:
+       $$\text{logit}(P(Y_{ij} = 1)) = \beta_0 + \beta_1 \text{Condition}_i + \beta_2 \text{Scenario}_j + u_i, \quad u_i \sim \mathcal{N}(0, \sigma_u^2)$$
+     - Empirical power is computed as the proportion of the $M$ simulated cohorts where the two-sided Wald test on $\beta_1$ achieves $p < 0.05$.
+  4. **Pilot Calibration**:
+     - Execute a preliminary internal pilot cohort ($N_{\text{pilot}} = 10$) to estimate empirical $\hat{\sigma}_u^2$ and verify scenario difficulty distributions. The final enrollment target $N$ will be adjusted if the pilot-calibrated simulation requires $N > 50$ to achieve $80\%$ power.
 
 ### 4.3 Information-Equivalence & Complexity Controls
 To prevent confounding the presentation format with mere information volume or visual design differences:
@@ -106,7 +125,7 @@ For each scenario, participants answer three standardized questions:
 ### 6.2 Secondary Outcomes Analysis
 - **Fragility Recall**: Subgroup GLMM fitted strictly on fragile scenarios (S3, S4, S8).
 - **Drift Estimation Error**: Linear Mixed Model (LMM) on absolute error $|\text{Slider} - \epsilon^*|$.
-- **Decision Latency**: Log-transformed response times analyzed via LMM.
+- **Decision Latency**: Log-transformed human participant response times (seconds per scenario) analyzed via LMM.
 - **Cognitive Workload**: Two-sample $t$-test (or Wilcoxon rank-sum test) comparing NASA-TLX composite scores.
 - **Calibration**: Brier score comparison between conditions:
   $$B = \frac{1}{N_{\text{total}}} \sum_{i, j} (p_{ij} - Y_{ij})^2$$

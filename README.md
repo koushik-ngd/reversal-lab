@@ -131,8 +131,8 @@ uv run reversallab run-example --output runs/quickstart_report.json
 # Launch the FastAPI REST service
 uv run reversallab-service --host 127.0.0.1 --port 8000 --storage-dir ./var/reversallab
 
-# Execute research experiment reproduction
-uv run reversallab run-reversal --config configs/experiments/007_independent_reliability.yaml
+# Execute research experiment reproduction (e.g., 5,000-replication independent benchmark)
+uv run reversallab run-independent-reliability --config configs/experiments/007_independent_reliability.yaml
 ```
 
 ---
@@ -221,7 +221,7 @@ ReversalLab was developed through seven audited empirical milestones:
 | **003** | Advanced Estimators | DM and DR evaluation with leakage-safe K-fold cross-fitting and misspecification tests. | `uv run reversallab validate-advanced-estimators --config configs/experiments/003_advanced_estimators.yaml` |
 | **004** | Uncertainty Calibration | Coverage and reliability audit of Wald intervals, influence scores, and bootstrap resamples. | `uv run reversallab calibrate-uncertainty --config configs/experiments/004_uncertainty_calibration.yaml` |
 | **005** | Decision-Reversal Prototype | Prototype 1-D context mixture perturbation search and margin-crossing detection. | `uv run reversallab run-reversal --config configs/experiments/005_reversal_prototype.yaml` |
-| **006** | Mathematical Validation | Analytical reversal root-finding and simultaneous confidence band certification. | `uv run reversallab run-reliability --config configs/experiments/006_reversal_validation.yaml` |
+| **006** | Mathematical Validation | Analytical reversal root-finding and simultaneous confidence band certification. | `uv run reversallab run-reliability --config configs/experiments/006_reversal_reliability.yaml` |
 | **007** | Independent Reliability | 5,000 Monte Carlo replications comparing inverse reversal distance and forward robust baselines. | `uv run reversallab run-independent-reliability --config configs/experiments/007_independent_reliability.yaml` |
 
 ---
