@@ -189,6 +189,8 @@ class TestPolicyComparison:
         summary_text = report.summary()
         assert "REVERSALLAB DECISION-REVERSAL AUDIT REPORT" in summary_text
         assert "1. PAIRED POLICY ADVANTAGE" in summary_text
+        assert report.decision["baseline_q0"] == 0.5
+        assert "Decision at q0=0.500" in summary_text
 
         # Test JSON serialization and save
         out_file = tmp_path / "report.json"
@@ -233,6 +235,7 @@ class TestPolicyComparison:
 
         # Decision MUST be INCONCLUSIVE due to gate failure, even if point estimate was positive
         assert report.decision["outcome"] == "INCONCLUSIVE"
+        assert "Unavailable (diagnostic gate failed)" in report.summary()
         assert "Diagnostic gate failure" in report.decision["reason"]
         assert report.reversal_search["status"] == "BASELINE_DIAGNOSTIC_FAILURE"
         assert report.robust_mixture["outcome"] == "INCONCLUSIVE"

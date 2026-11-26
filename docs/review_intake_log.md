@@ -37,7 +37,7 @@ Each incoming review is cataloged using the following standardized fields:
    - `Discrepancy`: Discrepancy observed beyond tolerance; numerical details documented.
    - `N/A`: Track does not execute numerical benchmarks.
 5. **Defects Encountered**: Summary of bugs, documentation errors, or unexpected behavior encountered. Linked to tracking issue if filed.
-6. **Defect Severity**: Prioritized according to [issue_triage_policy.md](file:///c:/reversal-lab/docs/issue_triage_policy.md):
+6. **Defect Severity**: Prioritized according to [issue_triage_policy.md](issue_triage_policy.md):
    - `P0 — Blocker`: Data corruption, mathematical invalidity, silent wrong results, release blocker.
    - `P1 — Critical`: Crash under valid inputs, major security bypass, blocking installation issue.
    - `P2 — Major`: Performance degradation, incorrect edge-case error message, minor CLI inconsistency.
@@ -54,7 +54,7 @@ Each incoming review is cataloged using the following standardized fields:
 
 ## 4. Triage & Remediation Workflow
 
-When an external reviewer submits a completed [reviewer_feedback_template.md](file:///c:/reversal-lab/docs/reviewer_feedback_template.md):
+When an external reviewer submits a completed [reviewer_feedback_template.md](reviewer_feedback_template.md):
 
 1. **Receipt & Ingestion**:
    - Save the raw submission to `docs/reviews/{Reviewer_ID}.md`.

@@ -193,31 +193,25 @@ class TwoStratumSimultaneousBand:
         min_lower = min(res_min.simultaneous_ci_lower, res_max.simultaneous_ci_lower)
         max_upper = max(res_min.simultaneous_ci_upper, res_max.simultaneous_ci_upper)
 
-        # Because L_simult(q) is linear: L_simult(q) = q L0 + (1-q) L1 = q (L0 - L1) + L1
-        # The crossing point with margin delta is:
-        denom_lower = self.stratum_0_lower - self.stratum_1_lower
-        crossing_lower: float | None = None
-        if abs(denom_lower) > 1e-12:
-            q_c = (margin - self.stratum_1_lower) / denom_lower
-            if q_min <= q_c <= q_max:
-                crossing_lower = q_c
-
-        # Upper bound crossing:
-        denom_upper = self.stratum_0_upper - self.stratum_1_upper
-        crossing_upper: float | None = None
-        if abs(denom_upper) > 1e-12:
-            q_u = (margin - self.stratum_1_upper) / denom_upper
-            if q_min <= q_u <= q_max:
-                crossing_upper = q_u
-
+        # Affine band bounds make each decision region an interval. On each
+        # side, bracket the first changed decision with two real evaluations.
+        # This also handles a strict inequality whose root rounds to either side.
         candidates: list[tuple[float, float, DecisionOutcome]] = []
-
-        for q_cand in [crossing_lower, crossing_upper, q_min, q_max]:
-            if q_cand is not None:
-                res_c = self.evaluate_band(q_cand, margin)
-                if res_c.decision.outcome != initial_decision:
-                    dist = abs(q_cand - baseline_q0)
-                    candidates.append((dist, q_cand, res_c.decision.outcome))
+        for endpoint in (res_min, res_max):
+            if endpoint.decision.outcome == initial_decision:
+                continue
+            same = baseline_q0
+            changed = endpoint
+            while True:
+                midpoint = same + (changed.q0 - same) / 2
+                if midpoint == same or midpoint == changed.q0:
+                    break
+                probe = self.evaluate_band(midpoint, margin)
+                if probe.decision.outcome == initial_decision:
+                    same = midpoint
+                else:
+                    changed = probe
+            candidates.append((abs(changed.q0 - baseline_q0), changed.q0, changed.decision.outcome))
 
         if not candidates:
             return SimultaneousReversalResult(

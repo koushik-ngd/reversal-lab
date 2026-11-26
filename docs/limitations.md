@@ -1,7 +1,6 @@
 # Limitations
 
-Status: M3B-2. Items below are properties of this version, not a backlog disguised
-as completed work.
+The empirical coverage and error rates below come from the study scenarios and sample sizes stated for each experiment.
 
 ## Estimators and Uncertainty Quantification
 
@@ -88,16 +87,13 @@ Verified against the files on 2026-10-28. The write-up is
 
 ## Decision reversal
 
-* There is no decision rule, perturbation search, or fragility metric in the
-  code. The central research question is unanswered. A sketch of the future
-  decision rule is in `experiment_protocol.md` so that it can be reviewed
-  before it is implemented.
+* The search varies the proportion of two prespecified strata and assumes stable
+  outcomes within each stratum. Its distance measures sensitivity to that one
+  mixture change. A diagnostic failure prevents deployment certification.
+* The simultaneous band combines two stratum-level Wald intervals. Its coverage
+  depends on the quality of those intervals, especially under poor overlap.
 
-## Reproducibility gaps
+## Reproducibility
 
-* The M3A commit is `ab4dfad`. Working tree changes for M3B-1 are tracked
-  and verified via deterministic seeds and reproducible configs.
-* Naive Wald intervals for DM and DR omit model estimation variance. Calibrated
-  uncertainty intervals are planned for M3B-2.
 * OBP reference checks run isolated estimator functions in an isolated subprocess.
   Full OBP is not an installed dependency.

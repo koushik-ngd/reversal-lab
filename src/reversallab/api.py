@@ -371,11 +371,14 @@ class PolicyComparisonReport:
         rob = self.robust_mixture
 
         pct = round(adv["confidence_level"] * 100)
-        d_rev_str = (
-            f"{rev['reversal_distance']:.4f} (analytical: {rev['exact_reversal_distance']:.4f})"
-            if rev.get("reversal_distance") is not None
-            else "None detected (Robust across bounds)"
-        )
+        if rev.get("reversal_distance") is not None:
+            d_rev_str = f"{rev['reversal_distance']:.4f}"
+            if rev.get("exact_reversal_distance") is not None:
+                d_rev_str += f" (analytical: {rev['exact_reversal_distance']:.4f})"
+        elif not diag["gate_passed"]:
+            d_rev_str = "Unavailable (diagnostic gate failed)"
+        else:
+            d_rev_str = "None detected within the search radius"
 
         n_s = self.metadata["n_samples"]
         n_a = self.metadata["n_actions"]
@@ -390,7 +393,8 @@ class PolicyComparisonReport:
             "=" * 78,
             f"Generated:       {self.timestamp}",
             f"Dataset:         N = {n_s} observations, {n_a} actions, dim = {c_d}",
-            f"Evaluation:      Estimator = {adv['estimator'].upper()} ({k_f}-fold cross-fitting)",
+            f"Evaluation:      Estimator = {adv['estimator'].upper()}"
+            + (f" ({k_f}-fold cross-fitting)" if adv["estimator"] in ("dm", "dr") else ""),
             f"Policy Margin:   delta = {dec['margin']:.4f} (Confidence level: {pct}%)",
             "",
             "1. PAIRED POLICY ADVANTAGE",
@@ -399,6 +403,14 @@ class PolicyComparisonReport:
                 f"(SE: {adv['standard_error']:.4f})"
             ),
             f"   {pct}% Confidence Bound:    [{adv['ci_lower']:+.4f}, {adv['ci_upper']:+.4f}]",
+            *(
+                [
+                    f"   Decision at q0={dec['baseline_q0']:.3f}:   "
+                    f"{dec['point_estimate']:+.4f} [{dec['ci_lower']:+.4f}, {dec['ci_upper']:+.4f}]"
+                ]
+                if "baseline_q0" in dec
+                else []
+            ),
             f"   Baseline Action:          {dec['outcome']} ({dec['reason']})",
             "",
             "2. RELIABILITY DIAGNOSTICS",
@@ -662,6 +674,10 @@ class PolicyComparison:
             },
             decision={
                 "outcome": base_dec.outcome.value,
+                "baseline_q0": strata_model.baseline_q0,
+                "point_estimate": base_dec.point_estimate,
+                "ci_lower": base_dec.ci_lower,
+                "ci_upper": base_dec.ci_upper,
                 "margin": margin,
                 "reason": base_dec.reason,
                 "is_actionable": base_dec.is_actionable,
@@ -691,11 +707,16 @@ class PolicyComparison:
                 "reason": robust_res.reason,
             },
             assumptions_and_guarantees={
-                "supported_claims": (
-                    "Asymptotically valid normal confidence intervals for paired difference "
-                    "via Doubly Robust estimation with K-fold cross-fitting, under "
-                    "unconfoundedness and positive propensity support."
-                ),
+                "supported_claims": {
+                    "dr": "Asymptotically valid paired Wald inference with cross-fitted DR "
+                    "under independent observations, overlap, and accurate logged propensities.",
+                    "ips": "Paired IPS Wald inference assumes independent observations, "
+                    "overlap, accurate logged propensities, and finite score variance.",
+                    "snips": "Paired SNIPS uses a large-sample ratio approximation with "
+                    "independent observations, overlap, and stable importance weights.",
+                    "dm": "Paired DM compares cross-fitted reward predictions. Its interval "
+                    "omits reward-model estimation uncertainty and can undercover.",
+                }[estimator.lower()],
                 "unsupported_claims": (
                     "Does not establish safety against unobserved confounding, continuous "
                     "non-parametric density drift, or multidimensional demographic shifts "

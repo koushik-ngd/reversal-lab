@@ -13,7 +13,7 @@ This document describes the public Python API exposed by ReversalLab (`reversall
 
 ## 1. Data Contract: `BanditDataset`
 
-[`BanditDataset`](file:///c:/reversal-lab/src/reversallab/api.py#L90-L195) is an immutable container for contextual-bandit logged data, enforcing array dimensionality, finiteness, and positivity contracts.
+[`BanditDataset`](../src/reversallab/api.py#L89) is an immutable container for contextual-bandit logged data, enforcing array dimensionality, finiteness, and positivity contracts.
 
 ### Constructors
 
@@ -43,7 +43,7 @@ def from_arrays(
 @classmethod
 def from_logged_data(cls, data: LoggedBanditData) -> BanditDataset
 ```
-Wraps an existing validated low-level [`LoggedBanditData`](file:///c:/reversal-lab/src/reversallab/contracts/logged_data.py) object.
+Wraps an existing validated low-level [`LoggedBanditData`](../src/reversallab/contracts/logged_data.py) object.
 
 #### `BanditDataset.from_synthetic`
 ```python
@@ -72,7 +72,7 @@ Generates synthetic logged data from a specified environment and logging policy.
 
 ## 2. Single-Policy Evaluation: `PolicyValueEvaluator`
 
-[`PolicyValueEvaluator.evaluate`](file:///c:/reversal-lab/src/reversallab/api.py#L243-L300) estimates the expected reward $V(\pi) = \mathbb{E}[r(\pi)]$ for a single target policy.
+[`PolicyValueEvaluator.evaluate`](../src/reversallab/api.py#L243) estimates the expected reward $V(\pi) = \mathbb{E}[r(\pi)]$ for a single target policy.
 
 ```python
 report = PolicyValueEvaluator.evaluate(
@@ -110,7 +110,7 @@ Dataclass containing:
 
 ## 3. Paired Comparison & Decision Reversal: `PolicyComparison`
 
-[`PolicyComparison.evaluate`](file:///c:/reversal-lab/src/reversallab/api.py#L443-L685) executes complete paired superiority testing and decision robustness analysis.
+[`PolicyComparison.evaluate`](../src/reversallab/api.py#L455) executes complete paired superiority testing and decision robustness analysis.
 
 ```python
 report = PolicyComparison.evaluate(
@@ -135,7 +135,7 @@ report = PolicyComparison.evaluate(
 - `margin` ($\delta$): Operational margin required to justify switching to candidate policy (e.g. $+0.02$).
 - `deploy_epsilon` ($\epsilon_{\text{deploy}}$): Certified operational perturbation ball radius around baseline mixture $q_0$: $\mathcal{Q}_{\epsilon} = [\max(0, q_0 - \epsilon), \min(1, q_0 + \epsilon)]$.
 - `max_epsilon`: Maximum search radius for decision reversal (default $0.40$).
-- `stratum_partition`: Defines the 1-D demographic context split. Default is [`StratumPartition(split_dim=0, split_threshold=0.0)`](file:///c:/reversal-lab/src/reversallab/reversal/strata.py) which divides observations into $\mathcal{X}_0 = \{x : x_0 \ge 0\}$ and $\mathcal{X}_1 = \{x : x_0 < 0\}$.
+- `stratum_partition`: Defines the 1-D demographic context split. Default is [`StratumPartition(split_dim=0, split_threshold=0.0)`](../src/reversallab/reversal/strata.py) which divides observations into $\mathcal{X}_0 = \{x : x_0 \ge 0\}$ and $\mathcal{X}_1 = \{x : x_0 < 0\}$.
 - `min_propensity_threshold`: Minimum logging propensity threshold $\tau$ for diagnostic gating (default $10^{-4}$).
 
 ### Decision Rules
@@ -171,7 +171,9 @@ When an active propensity deficit or ESS collapse is detected, the diagnostic ga
 
 ## 4. Report Contract: `PolicyComparisonReport`
 
-[`PolicyComparisonReport`](file:///c:/reversal-lab/src/reversallab/api.py#L302-L420) provides both human-readable visualization and versioned machine-readable JSON exports.
+The `paired_advantage` section summarizes the observed sample. The `decision` section includes the reference stratum-0 weight (`baseline_q0`, currently 0.5), its `point_estimate`, and its interval (`ci_lower`, `ci_upper`). These quantities can differ when the observed sample has unequal stratum sizes.
+
+[`PolicyComparisonReport`](../src/reversallab/api.py#L319) provides both human-readable visualization and versioned machine-readable JSON exports.
 
 ### Methods
 - `report.summary() -> str`: ASCII formatted summary.

@@ -13,7 +13,7 @@ Rather than relying solely on point estimates or standard confidence intervals t
 Off-policy evaluation enables safe policy comparison using historical logged bandit data without costly online A/B testing. However, real-world deployment decisions frequently fail because production user distributions drift from historical logging distributions.
 
 ReversalLab formalizes **Decision-Reversal Auditing**:
-- Instead of computing an advantage $\Delta = V(\pi_e) - V(\pi_b)$ at only the observed sample distribution $q_0$, ReversalLab assesses the stability of the deployment decision $\Delta(q) \ge \delta$ across demographic shifts.
+- Instead of computing an advantage $\Delta = V(\pi_e) - V(\pi_b)$ at a single reference mixture $q_0$, ReversalLab assesses the stability of the confidence-bound decision across demographic shifts.
 - It calculates the exact **decision-reversal threshold** $\epsilon^*$ (minimum perturbation budget required to overturn deployment certification) and evaluates the worst-case advantage within a certified operational envelope $\mathcal{Q}_\epsilon$.
 - If $\epsilon^* < \epsilon_{\text{deploy}}$, the policy pair is flagged for high reversal risk even if standard nominal tests claim statistical significance.
 
@@ -21,27 +21,27 @@ ReversalLab formalizes **Decision-Reversal Auditing**:
 
 ## 2. Mathematical Formulation
 
-Let contextual bandit data $\mathcal{D} = \{(X_i, A_i, Y_i, p_i)\}_{i=1}^N$ be partitioned into two demographic strata $\mathcal{S}_0$ and $\mathcal{S}_1$ via a verified covariate split, with baseline logging frequency $q_0 = \mathbb{P}(X \in \mathcal{S}_1)$.
+Let contextual bandit data $\mathcal{D} = \{(X_i, A_i, Y_i, p_i)\}_{i=1}^N$ be partitioned into two demographic strata $\mathcal{S}_0$ and $\mathcal{S}_1$ via a verified covariate split, with reference population weight $q_0 = \mathbb{P}(X \in \mathcal{S}_0)$.
+
+The high-level SDK uses a 50/50 reference population for its deployment decision. Its paired advantage estimate uses the observed sample. The report records the reference weight and interval in the `decision` section.
 
 ### Paired Policy Advantage
 For candidate policy $\pi_e$ and baseline policy $\pi_b$, the stratum-specific policy advantage is estimated using out-of-fold Doubly Robust (DR) estimation with leakage-safe $K$-fold cross-fitting:
 $$\Delta_s = \hat{V}_{\text{DR}}(\pi_e \mid \mathcal{S}_s) - \hat{V}_{\text{DR}}(\pi_b \mid \mathcal{S}_s), \quad s \in \{0, 1\}$$
 
-Under demographic mixture perturbation $q = \mathbb{P}(X \in \mathcal{S}_1) \in [0, 1]$, the perturbed advantage is affine:
-$$\Delta(q) = (1 - q)\Delta_0 + q\Delta_1$$
+Under demographic mixture perturbation $q = \mathbb{P}(X \in \mathcal{S}_0) \in [0, 1]$, the perturbed advantage is affine:
+$$\Delta(q) = q\Delta_0 + (1 - q)\Delta_1$$
 
 ### Decision-Reversal Threshold $\epsilon^*$
-Given an operational deployment margin $\delta \ge 0$, the decision-reversal root $q^*$ solves:
-$$\Delta(q^*) = \delta \implies q^* = \frac{\delta - \Delta_0}{\Delta_1 - \Delta_0}$$
-The minimum perturbation distance is:
-$$d^* = |q^* - q_0|$$
-A certified operational envelope $\mathcal{Q}_\epsilon = [q_0 - \epsilon_{\text{deploy}}, q_0 + \epsilon_{\text{deploy}}] \cap [0, 1]$ certifies deployment if and only if:
-$$\min_{q \in \mathcal{Q}_\epsilon} \text{LCB}_{1-\alpha}(q) \ge \delta$$
+At each mixture weight, the decision rule recommends deployment when the lower confidence bound strictly exceeds the margin $\delta$. It returns HOLD when the upper bound falls below the margin and INCONCLUSIVE otherwise. The reversal distance is the smallest shift from $q_0$ that changes this decision within the search radius.
+
+For a deployment tolerance $\epsilon$, the simultaneous-band check recommends deployment when the diagnostic gate passes and
+$$\min_{q \in [q_0-\epsilon,q_0+\epsilon]\cap[0,1]} \text{LCB}_{\mathrm{sim}}(q) > \delta.$$
 
 ### Simultaneous Confidence Bands
-To ensure uniform statistical validity across the entire perturbation set, ReversalLab computes simultaneous confidence bands via Bonferroni-corrected Wald intervals across stratum endpoints:
-$$\mathbb{P}\left(\forall q \in [0, 1], \quad \Delta(q) \in \left[\text{LCB}_{\text{sim}}(q), \text{UCB}_{\text{sim}}(q)\right]\right) \ge 1 - \alpha$$
-Because the lower confidence bound $\text{LCB}(q)$ is strictly concave under mixture shifts, its minimum across any closed interval $\mathcal{Q}_\epsilon$ occurs at the interval boundary.
+ReversalLab combines two Bonferroni-adjusted stratum Wald intervals. Under the large-sample assumptions for those intervals, the target simultaneous coverage is
+$$\liminf_{N\to\infty}\mathbb{P}\left(\forall q \in [0, 1], \quad \Delta(q) \in \left[\text{LCB}_{\text{sim}}(q), \text{UCB}_{\text{sim}}(q)\right]\right) \ge 1 - \alpha$$
+The simultaneous lower bound is a weighted average of the two stratum lower bounds. It is affine in the mixture weight, so checking both endpoints gives its minimum over the deployment interval.
 
 ---
 
@@ -55,7 +55,7 @@ git clone https://github.com/koushik-ngd/reversal-lab.git
 cd reversal-lab
 
 # Install dependencies using uv
-uv sync --frozen --all-groups
+uv sync --frozen --all-groups --extra service
 ```
 
 ### Standalone Wheel Installation
@@ -152,7 +152,7 @@ The notebook demonstrates:
 To launch the notebook interactively:
 
 ```bash
-uv run jupyter lab notebooks/quickstart_decision_reversal.ipynb
+uv run --with jupyterlab jupyter lab notebooks/quickstart_decision_reversal.ipynb
 ```
 
 The notebook is also automatically verified in CI via a genuine Jupyter kernel execution test (`tests/integration/test_notebook_kernel.py`).

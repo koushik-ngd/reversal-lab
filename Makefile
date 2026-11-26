@@ -1,7 +1,7 @@
 .PHONY: install lint format typecheck test check experiment build
 
 install:
-	uv sync --frozen --all-groups
+	uv sync --frozen --all-groups --extra service
 
 lint:
 	uv run ruff check src tests

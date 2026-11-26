@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from reversallab.reversal.decision import DecisionOutcome
 from reversallab.reversal.simultaneous import TwoStratumSimultaneousBand
 from reversallab.reversal.strata import (
@@ -112,3 +114,21 @@ class TestSimultaneousBandProperties:
         assert res.pointwise_reversal_distance is not None
         # Simultaneous distance must be <= pointwise distance
         assert res.simultaneous_reversal_distance <= res.pointwise_reversal_distance + 1e-8
+
+
+@pytest.mark.parametrize("direction", [-1, 1])
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_rounded_crossing_returns_nearest_changed_decision(direction: int, sign: int) -> None:
+    margin = 0.02
+    means = [margin + sign * 0.14, margin - sign * 0.04]
+    if direction == 1:
+        means.reverse()
+    band = TwoStratumSimultaneousBand(_make_strata(means[0], 0.02, means[1], 0.02))
+    result = band.find_simultaneous_reversal(margin, max_epsilon=0.4)
+    assert result.simultaneous_reversal_distance == pytest.approx(0.028733030266117)
+    assert result.simultaneous_reversed_q0 is not None
+    assert direction * (result.simultaneous_reversed_q0 - 0.5) > 0
+    assert band.evaluate_band(result.simultaneous_reversed_q0, margin).decision.outcome == (
+        result.reversed_decision
+    )
+    assert result.reversed_decision == DecisionOutcome.INCONCLUSIVE
